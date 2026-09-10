@@ -128,6 +128,10 @@ const SCHEMA_OBJECTS: Record<string, string> = {
   idx_admin_events_created: `CREATE INDEX IF NOT EXISTS idx_admin_events_created ON admin_events(created_at DESC)`,
   // Single-row table driving the nightly round-robin over workspaces.
   maintenance_cursor: `CREATE TABLE IF NOT EXISTS maintenance_cursor (id INTEGER PRIMARY KEY CHECK (id = 1), workspace_id TEXT NOT NULL DEFAULT '', advanced_at INTEGER NOT NULL DEFAULT 0)`,
+  brain_directories: `CREATE TABLE IF NOT EXISTS brain_directories (id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, parent_id TEXT, name TEXT NOT NULL, path TEXT NOT NULL, default_clearance INTEGER NOT NULL DEFAULT 12, owner_id TEXT NOT NULL, created_at INTEGER NOT NULL, UNIQUE(workspace_id, path))`,
+  idx_brain_directories_workspace: `CREATE INDEX IF NOT EXISTS idx_brain_directories_workspace ON brain_directories(workspace_id, path)`,
+  brain_directory_grants: `CREATE TABLE IF NOT EXISTS brain_directory_grants (directory_id TEXT NOT NULL, user_id TEXT NOT NULL, can_read INTEGER NOT NULL DEFAULT 1, can_write INTEGER NOT NULL DEFAULT 0, can_delete INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL, PRIMARY KEY(directory_id, user_id))`,
+  idx_brain_directory_grants_user: `CREATE INDEX IF NOT EXISTS idx_brain_directory_grants_user ON brain_directory_grants(user_id, directory_id)`,
 };
 
 /**
@@ -159,6 +163,9 @@ const ENTRIES_COLUMNS: Record<string, string> = {
   // an explicit, memoised bootstrap rather than on the migration path.
   workspace_id: `ALTER TABLE entries ADD COLUMN workspace_id TEXT NOT NULL DEFAULT ''`,
   actor_id: `ALTER TABLE entries ADD COLUMN actor_id TEXT NOT NULL DEFAULT ''`,
+  clearance_level: `ALTER TABLE entries ADD COLUMN clearance_level INTEGER NOT NULL DEFAULT 12`,
+  directory_id: `ALTER TABLE entries ADD COLUMN directory_id TEXT`,
+  source_path: `ALTER TABLE entries ADD COLUMN source_path TEXT`,
 };
 
 /**
@@ -189,6 +196,7 @@ const USERS_COLUMNS: Record<string, string> = {
   // to every reader, and inventing a timestamp would cost one row written per
   // user to make the roster say something untrue. NULL renders as "Never used".
   last_used_at: `ALTER TABLE users ADD COLUMN last_used_at INTEGER`,
+  clearance_floor: `ALTER TABLE users ADD COLUMN clearance_floor INTEGER NOT NULL DEFAULT 12`,
 };
 
 /**
@@ -226,6 +234,7 @@ const ADMIN_EVENTS_COLUMNS: Record<string, string> = {
 const POST_COLUMN_OBJECTS: Record<string, string> = {
   idx_entries_capsule: `CREATE INDEX IF NOT EXISTS idx_entries_capsule ON entries(workspace_id, id) WHERE instr(lower(tags), '"capsule:') > 0`,
   idx_entries_workspace_created: `CREATE INDEX IF NOT EXISTS idx_entries_workspace_created ON entries(workspace_id, created_at DESC)`,
+  idx_entries_clearance: `CREATE INDEX IF NOT EXISTS idx_entries_clearance ON entries(workspace_id, clearance_level, created_at DESC)`,
   prompt_capsule_entry_insert: `CREATE TRIGGER IF NOT EXISTS prompt_capsule_entry_insert
     AFTER INSERT ON entries
     WHEN instr(lower(NEW.tags), '"capsule:') > 0 OR instr(lower(NEW.tags), '"capsule-slot:') > 0

@@ -51,13 +51,14 @@ export async function handleEntriesRoutes(
     // A member's backup is their readable set — personal plus company — not the
     // whole deployment. Same unbounded-SELECT budget note as below applies.
     const scope = scopeWhere(auth);
+    const edgeScope = scopeWhere(auth, undefined, "edges.workspace_id");
 
     const { results: entryRows } = await env.DB.prepare(
-      `SELECT id, content, tags, source, created_at, COALESCE(updated_at, created_at) AS last_updated, recall_count, importance_score, contradiction_wins, contradiction_losses FROM entries WHERE ${scope.clause} ORDER BY created_at DESC`
+      `SELECT id, content, tags, source, created_at, COALESCE(updated_at, created_at) AS last_updated, recall_count, importance_score, contradiction_wins, contradiction_losses, clearance_level, directory_id, source_path FROM entries WHERE ${scope.clause} ORDER BY created_at DESC`
     ).bind(...scope.bindings).all() as { results: Record<string, any>[] };
     const { results: edgeRows } = await env.DB.prepare(
-      `SELECT source_id, target_id, type, weight, provenance, created_at FROM edges WHERE ${scope.clause}`
-    ).bind(...scope.bindings).all() as { results: Record<string, any>[] };
+      `SELECT source_id, target_id, type, weight, provenance, created_at FROM edges WHERE ${edgeScope.clause}`
+    ).bind(...edgeScope.bindings).all() as { results: Record<string, any>[] };
 
     // vector_ids are deliberately excluded — they're deployment-specific and an
     // import tool re-embeds anyway. Tags are parsed so the file holds real arrays.
@@ -83,6 +84,9 @@ export async function handleEntriesRoutes(
       importance_score: r.importance_score ?? 0,
       contradiction_wins: r.contradiction_wins ?? 0,
       contradiction_losses: r.contradiction_losses ?? 0,
+      clearance_level: r.clearance_level ?? 12,
+      directory_id: r.directory_id ?? null,
+      source_path: r.source_path ?? null,
     }));
     const edges = edgeRows.map(r => ({
       source_id: r.source_id,

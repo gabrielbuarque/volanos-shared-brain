@@ -10,6 +10,8 @@ export interface TeamMember {
   name: string;
   email: string | null;
   role: "admin" | "member";
+  /** Lowest clearance level this member may read/write; P0 is most restricted. */
+  clearanceFloor: number;
   suspended: boolean;
   createdAt: number;
   /**
@@ -70,7 +72,7 @@ export async function listMembers(env: Env): Promise<TeamMember[]> {
   const { results } = await env.DB.prepare(
     // scope-exempt: admin member list: the subselect counts rows in each member's OWN workspace (e.workspace_id = w.id) and yields a number, never content
     `SELECT u.id AS userId, u.name, u.email, u.role, u.suspended, u.created_at AS createdAt,
-            u.default_share AS defaultShare, u.last_used_at AS lastUsedAt,
+            u.default_share AS defaultShare, u.last_used_at AS lastUsedAt, u.clearance_floor AS clearanceFloor,
             w.id AS personalWorkspaceId,
             (SELECT COUNT(*) FROM entries e WHERE e.workspace_id = w.id) AS privateEntries
      FROM users u
@@ -85,6 +87,7 @@ export async function listMembers(env: Env): Promise<TeamMember[]> {
     // SQLite hands NULL back as null already; the coalesce is for D1's own
     // undefined-for-absent-column behaviour on a brain mid-migration.
     lastUsedAt: r.lastUsedAt ?? null,
+    clearanceFloor: Number.isInteger(r.clearanceFloor) ? Math.max(0, Math.min(12, r.clearanceFloor)) : 12,
     defaultShare: r.defaultShare === "company" ? "company" : r.defaultShare === "personal" ? "personal" : "",
   }));
 }
@@ -310,7 +313,7 @@ export async function createMember(
   return {
     member: {
       userId, name, email, role, suspended: false, createdAt: now,
-      lastUsedAt: null,
+      lastUsedAt: null, clearanceFloor: 12,
       personalWorkspaceId: workspaceId, privateEntries: 0, defaultShare: "",
     },
     token,

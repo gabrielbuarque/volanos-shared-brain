@@ -44,6 +44,7 @@ export interface IntegrationProvider {
   connectPlaceholder?: string; // input placeholder
   connectHint?: string;        // where to find the secret (may contain safe HTML)
   category?: string;           // settings-UI grouping id: "knowledge" | "calendar" | "email"
+  authKind?: "token" | "oauth2";
   // Validate a pasted token against the provider's API; returns an account /
   // workspace label for the UI's "Connected to …" confirmation. Throws with a
   // user-presentable message when the token is rejected.
@@ -65,7 +66,7 @@ export interface ItemMapEntry {
 
 export interface IntegrationRecord {
   provider: string;
-  authKind: "token"; // "oauth2" reserved for future providers that require it
+  authKind: "token" | "oauth2";
   credentials: { token: string };
   config: Record<string, unknown>; // escape hatch for future per-provider options
   status: "connected" | "error";
@@ -153,11 +154,16 @@ export function integrationStatus(
 // imports from index.ts (no circular dependency).
 
 export interface MirrorStore {
-  // Insert a new entry and return its id.
-  createEntry(content: string, tags: string[], source: string): Promise<string>;
+  createEntry(content: string, tags: string[], source: string, options?: MirrorEntryOptions): Promise<string>;
   // Replace an entry's content wholesale (re-embed). False if the entry no
   // longer exists — the caller re-creates the mirror.
-  updateEntry(entryId: string, content: string): Promise<boolean>;
+  updateEntry(entryId: string, content: string, options?: MirrorEntryOptions): Promise<boolean>;
   // Permanently delete an entry and its vectors.
   deleteEntry(entryId: string): Promise<void>;
+}
+
+export interface MirrorEntryOptions {
+  clearanceLevel?: number;
+  directoryId?: string | null;
+  sourcePath?: string | null;
 }

@@ -4,6 +4,7 @@ import { isSymmetric, isValidEdgeType } from "../graph/edges";
 import type { EdgeProvenance } from "../graph/types";
 import { PROVENANCE_VALUES } from "../graph/types";
 import { OWNER_WRITE_CONTEXT, type WriteContext } from "../lib/scope";
+import { normalizeClearance } from "../lib/permissions";
 
 /**
  * Default page size: array positions examined per call, inserts and skips alike.
@@ -19,7 +20,7 @@ export const IMPORT_D1_BATCH_SIZE = 50;
 export const EDGE_ENDPOINT_QUERY_BATCH = Math.floor(D1_MAX_BOUND_PARAMS / 2);
 
 const ENTRY_INSERT_SQL_TEMPLATE =
-  `INSERT INTO entries (id, content, tags, source, created_at, updated_at, vector_ids, recall_count, importance_score, contradiction_wins, contradiction_losses, workspace_id, actor_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+  `INSERT INTO entries (id, content, tags, source, created_at, updated_at, vector_ids, recall_count, importance_score, contradiction_wins, contradiction_losses, workspace_id, actor_id, clearance_level, directory_id, source_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
 
 function parseInsertColumns(sql: string): readonly string[] {
   const match = sql.match(/INSERT INTO entries \(([^)]+)\)/i);
@@ -62,6 +63,9 @@ export interface ExportEntry {
   importance_score?: number;
   contradiction_wins?: number;
   contradiction_losses?: number;
+  clearance_level?: number;
+  directory_id?: string | null;
+  source_path?: string | null;
 }
 
 export interface ExportEdge {
@@ -135,6 +139,9 @@ interface PendingInsert {
   importance_score: number;
   contradiction_wins: number;
   contradiction_losses: number;
+  clearance_level: number;
+  directory_id: string | null;
+  source_path: string | null;
 }
 
 function isValidProvenance(p: string): p is EdgeProvenance {
@@ -293,6 +300,9 @@ function bindInsert(env: Env, row: PendingInsert, writeCtx: WriteContext) {
     row.contradiction_losses,
     writeCtx.workspaceId,
     writeCtx.actorId,
+    row.clearance_level,
+    row.directory_id,
+    row.source_path,
   );
 }
 
@@ -602,6 +612,12 @@ function parseEntryRow(entry: ExportEntry): { row: PendingInsert } | { failure: 
   if (!winsParsed.ok) return { failure: { id, status: "failed", reason: winsParsed.reason } };
   const lossesParsed = parseOptionalNumber(entry.contradiction_losses, "invalid_contradiction_losses");
   if (!lossesParsed.ok) return { failure: { id, status: "failed", reason: lossesParsed.reason } };
+  const clearance = normalizeClearance(entry.clearance_level);
+  if (clearance === null) return { failure: { id, status: "failed", reason: "invalid_clearance_level" } };
+  const directoryId = entry.directory_id === undefined || entry.directory_id === null || entry.directory_id === "" ? null : typeof entry.directory_id === "string" ? entry.directory_id.trim() : null;
+  if (entry.directory_id !== undefined && entry.directory_id !== null && entry.directory_id !== "" && !directoryId) return { failure: { id, status: "failed", reason: "invalid_directory_id" } };
+  const sourcePath = entry.source_path === undefined || entry.source_path === null || entry.source_path === "" ? null : typeof entry.source_path === "string" ? entry.source_path.slice(0, 500) : null;
+  if (entry.source_path !== undefined && entry.source_path !== null && entry.source_path !== "" && !sourcePath) return { failure: { id, status: "failed", reason: "invalid_source_path" } };
 
   return {
     row: {
@@ -615,6 +631,9 @@ function parseEntryRow(entry: ExportEntry): { row: PendingInsert } | { failure: 
       importance_score: importanceParsed.value,
       contradiction_wins: winsParsed.value,
       contradiction_losses: lossesParsed.value,
+      clearance_level: clearance,
+      directory_id: directoryId,
+      source_path: sourcePath,
     },
   };
 }

@@ -149,9 +149,12 @@ export async function buildPromptCapsule(
   // so no v2 cache value can be created during a partially applied migration.
   await initializeDatabase(env);
 
-  // The cache key is the bound workspace id itself, never the layer label. A
-  // scope that binds anything other than exactly one id is not cached.
-  const cacheWorkspaceId = resolved.scope.bindings.length === 1 ? resolved.scope.bindings[0] : null;
+  // The cache key is the resolved workspace id, never the layer label. The
+  // scope now carries clearance/ACL bindings in addition to workspace ids, so
+  // deriving the key from "the only binding" would disable caching for every
+  // member request and add an avoidable D1 read on each hit.
+  const cacheWorkspaceId = resolved.teamId
+    ?? (resolved.workspace === "personal" ? identity.personalWorkspaceId : identity.companyWorkspaceIds[0] ?? null);
   let cacheRevision: string | null = null;
   if (cacheWorkspaceId !== null) {
     const lookup = await readCachedPromptCapsule(

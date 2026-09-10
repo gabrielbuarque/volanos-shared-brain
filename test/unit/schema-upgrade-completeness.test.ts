@@ -46,6 +46,8 @@ const LEGACY_SHAPES: Record<string, string> = {
   // Never widened since it shipped.
   insight_candidates: `CREATE TABLE insight_candidates (id TEXT PRIMARY KEY, a_id TEXT NOT NULL, b_id TEXT NOT NULL, similarity REAL NOT NULL, gap_ms INTEGER NOT NULL, score REAL NOT NULL, signal TEXT NOT NULL DEFAULT 'vector', status TEXT NOT NULL DEFAULT 'pending', created_at INTEGER NOT NULL, UNIQUE(a_id, b_id))`,
   workspaces: `CREATE TABLE workspaces (id TEXT PRIMARY KEY, kind TEXT NOT NULL DEFAULT 'personal', name TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL)`,
+  brain_directories: `CREATE TABLE brain_directories (id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, parent_id TEXT, name TEXT NOT NULL, path TEXT NOT NULL, default_clearance INTEGER NOT NULL DEFAULT 12, owner_id TEXT NOT NULL, created_at INTEGER NOT NULL, UNIQUE(workspace_id, path))`,
+  brain_directory_grants: `CREATE TABLE brain_directory_grants (directory_id TEXT NOT NULL, user_id TEXT NOT NULL, can_read INTEGER NOT NULL DEFAULT 1, can_write INTEGER NOT NULL DEFAULT 0, can_delete INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL, PRIMARY KEY(directory_id, user_id))`,
   // Added with Prompt Capsule caching and never widened since.
   prompt_capsule_revisions: `CREATE TABLE prompt_capsule_revisions (workspace_id TEXT PRIMARY KEY, revision TEXT NOT NULL)`,
   // v3 as first provisioned: default_share, removed_at and last_used_at all

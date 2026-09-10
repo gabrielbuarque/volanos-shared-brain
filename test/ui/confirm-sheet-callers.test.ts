@@ -47,7 +47,7 @@ function listPublicSources(dir: string): string[] {
   return out;
 }
 
-const FILES = listPublicSources(PUBLIC).map((f) => relative(ROOT, f)).sort();
+const FILES = listPublicSources(PUBLIC).map((f) => relative(ROOT, f).replace(/\\/g, "/")).sort();
 
 /** Strips comments naive-but-good-enough for this codebase's line/block style. */
 function stripComments(src: string): string {

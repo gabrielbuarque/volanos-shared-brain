@@ -5,7 +5,7 @@ import { readScopeWorkspaces } from "../lib/scope";
 
 export interface VectorizeWorkspaceFilter {
   // Vectorize metadata filter shape (equality on a metadata field).
-  filter: { workspace_id: { $in: string[] } };
+  filter: { workspace_id: { $in: string[] }; clearance_level?: { $gte: number } };
 }
 
 export function workspaceFilter(
@@ -13,7 +13,9 @@ export function workspaceFilter(
   only?: "personal" | "company",
   teamId?: string,
 ): VectorizeWorkspaceFilter | undefined {
-  return { filter: { workspace_id: { $in: readScopeWorkspaces(identity, { layer: only, teamId }) } } };
+  const filter: VectorizeWorkspaceFilter["filter"] = { workspace_id: { $in: readScopeWorkspaces(identity, { layer: only, teamId }) } };
+  if (identity.role !== "admin") filter.clearance_level = { $gte: Math.max(0, Math.min(12, identity.clearanceFloor ?? 12)) };
+  return { filter };
 }
 
 /** Single-workspace variant for write-path checks (dedupe within the target). */

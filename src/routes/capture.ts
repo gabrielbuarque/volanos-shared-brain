@@ -11,6 +11,7 @@ import { appendToEntry, updateEntryContent } from "../capture/store";
 import { isManagedMirror, mirrorEditError } from "../integrations/mirror";
 import { auditEvent } from "../lib/audit";
 import { VOLATILITY_VALUES, withVolatility, type Volatility } from "../memory/volatility";
+import { resolveWritePermission } from "../lib/permissions";
 
 /** Validate route-only volatility input; MCP gets equivalent Zod validation. */
 /** Where this caller's writes land and who gets stamped on them. */
@@ -50,7 +51,7 @@ export async function handleCaptureRoutes(
     if (auth instanceof Response) return auth;
     const identity = auth;
 
-    let body: { content?: string; tags?: string[]; source?: string; volatility?: unknown; workspace?: unknown; team?: unknown };
+    let body: { content?: string; tags?: string[]; source?: string; volatility?: unknown; workspace?: unknown; team?: unknown; clearance_level?: unknown; directory_id?: unknown; source_path?: unknown };
     try { body = await request.json(); } catch { return json({ ok: false, error: "Invalid JSON" }, 400); }
     if (body.tags !== undefined && !validInputTags(body.tags)) return json({ ok: false, error: `tags must contain at most ${MAX_INPUT_TAGS} NUL-free strings of at most ${MAX_INPUT_TAG_CHARS} characters` }, 400);
     if (typeof body.content === "string" && body.content.includes("\0")) return json({ ok: false, error: "NUL is not allowed" }, 400);
@@ -68,6 +69,11 @@ export async function handleCaptureRoutes(
 
     const writeCtx = await writeContextFor(env, identity, body.workspace, body.team);
     if (writeCtx instanceof Response) return writeCtx;
+    const permission = await resolveWritePermission(env, identity, body.clearance_level, body.directory_id, body.source_path);
+    if (!permission.ok) return json({ ok: false, error: permission.error }, permission.status);
+    writeCtx.clearanceLevel = permission.clearanceLevel;
+    writeCtx.directoryId = permission.directoryId;
+    writeCtx.sourcePath = permission.sourcePath;
 
     const result = await captureEntry(body.content, captureTags, body.source ?? "api", env, ctx, undefined, writeCtx);
 

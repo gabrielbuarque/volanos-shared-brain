@@ -107,7 +107,7 @@ describe("recallEntries with an Identity", () => {
     await recallEntries({ query: "alpha", topK: 10, synthesize: false }, env, ctx, undefined,
       { identity: memberOf("ws-a") });
     expect(keywordSql()).toBe(
-      `SELECT id, content, tags, source, created_at FROM entries WHERE content LIKE ? AND workspace_id IN (?, ?) ORDER BY created_at DESC LIMIT ?`,
+      `SELECT id, content, tags, source, created_at FROM entries WHERE content LIKE ? AND workspace_id IN (?, ?) AND clearance_level >= ? AND (directory_id IS NULL OR NOT EXISTS (SELECT 1 FROM brain_directory_grants _dg0 WHERE _dg0.directory_id = directory_id) OR EXISTS (SELECT 1 FROM brain_directory_grants _dg1 WHERE _dg1.directory_id = directory_id AND _dg1.user_id = ? AND _dg1.can_read = 1)) ORDER BY created_at DESC LIMIT ?`,
     );
     // Both hydration steps carry the clause too — the candidate-signal read is
     // the leak-catcher for unscoped vectorize hits until namespaces land (P3).
@@ -158,7 +158,7 @@ describe("recallEntries with an Identity", () => {
     await recallEntries({ query: "alpha", topK: 10, synthesize: false }, env, ctx, undefined,
       { identity: memberOf("ws-a"), workspaceFilter: "personal" });
     expect(keywordSql()).toBe(
-      `SELECT id, content, tags, source, created_at FROM entries WHERE content LIKE ? AND workspace_id IN (?) ORDER BY created_at DESC LIMIT ?`,
+      `SELECT id, content, tags, source, created_at FROM entries WHERE content LIKE ? AND workspace_id IN (?) AND clearance_level >= ? AND (directory_id IS NULL OR NOT EXISTS (SELECT 1 FROM brain_directory_grants _dg0 WHERE _dg0.directory_id = directory_id) OR EXISTS (SELECT 1 FROM brain_directory_grants _dg1 WHERE _dg1.directory_id = directory_id AND _dg1.user_id = ? AND _dg1.can_read = 1)) ORDER BY created_at DESC LIMIT ?`,
     );
 
     // Team filter: exactly one workspace id, and the result set is that team's row.
@@ -166,7 +166,7 @@ describe("recallEntries with an Identity", () => {
     const res = await recallEntries({ query: "alpha", topK: 10, synthesize: false }, env, ctx, undefined,
       { identity: memberOf("ws-a"), teamId: "ws-co" });
     expect(keywordSql()).toBe(
-      `SELECT id, content, tags, source, created_at FROM entries WHERE content LIKE ? AND workspace_id = ? ORDER BY created_at DESC LIMIT ?`,
+      `SELECT id, content, tags, source, created_at FROM entries WHERE content LIKE ? AND workspace_id = ? AND clearance_level >= ? AND (directory_id IS NULL OR NOT EXISTS (SELECT 1 FROM brain_directory_grants _dg0 WHERE _dg0.directory_id = directory_id) OR EXISTS (SELECT 1 FROM brain_directory_grants _dg1 WHERE _dg1.directory_id = directory_id AND _dg1.user_id = ? AND _dg1.can_read = 1)) ORDER BY created_at DESC LIMIT ?`,
     );
     expect(res.matches.map(m => m.id)).toEqual(["co"]);
   });

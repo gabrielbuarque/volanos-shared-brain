@@ -12,6 +12,8 @@ import type { IntegrationProvider } from "./framework";
 import { notionProvider } from "./notion";
 import { makeCalendarProvider } from "./calendar";
 import { makeEmailProvider } from "./email";
+import { githubProvider } from "./github";
+import { driveProvider } from "./drive";
 
 export const calendarGoogle = makeCalendarProvider({
   id: "calendar-google",
@@ -67,6 +69,8 @@ export const INTEGRATION_PROVIDERS: Record<string, IntegrationProvider> = {
   [calendarIcloud.id]: calendarIcloud,
   [emailGmail.id]: emailGmail,
   [emailIcloud.id]: emailIcloud,
+  [githubProvider.id]: githubProvider,
+  [driveProvider.id]: driveProvider,
 };
 
 export function getProvider(id: string): IntegrationProvider | null {
@@ -109,5 +113,7 @@ export {
   validateEmailToken,
 } from "./email";
 export type { EmailService, EmailHeaderInfo, EmailCreds } from "./email";
+export { githubProvider, githubValidateToken } from "./github";
+export { driveProvider, driveValidateToken } from "./drive";
 export { ImapClient, parseHeaders, imapDate } from "./imap";
 export type { FetchedMessage } from "./imap";

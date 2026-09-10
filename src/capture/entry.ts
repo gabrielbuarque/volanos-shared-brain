@@ -193,8 +193,8 @@ export async function captureEntry(
     : duplicateTags;
 
   await env.DB.prepare(
-    `INSERT INTO entries (id, content, tags, source, created_at, updated_at, vector_ids, workspace_id, actor_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).bind(id, c, JSON.stringify(finalTags), source, now, now, "[]", writeCtx.workspaceId, writeCtx.actorId).run();
+    `INSERT INTO entries (id, content, tags, source, created_at, updated_at, vector_ids, workspace_id, actor_id, clearance_level, directory_id, source_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(id, c, JSON.stringify(finalTags), source, now, now, "[]", writeCtx.workspaceId, writeCtx.actorId, writeCtx.clearanceLevel ?? 12, writeCtx.directoryId ?? null, writeCtx.sourcePath ?? null).run();
 
   ctx.waitUntil(
     storeEntry(env, id, c, finalTags, source, now, cfg, writeCtx)

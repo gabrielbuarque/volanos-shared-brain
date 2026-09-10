@@ -10,6 +10,8 @@ export interface EntryAccessRow {
   content?: string;
   tags?: string;
   source?: string;
+  clearance_level?: number;
+  directory_id?: string | null;
 }
 
 export type EntryAccessDenied = { code: "forbidden"; message: string };

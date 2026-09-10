@@ -12,7 +12,10 @@ CREATE TABLE IF NOT EXISTS entries (
   contradiction_wins   INTEGER DEFAULT 0,
   contradiction_losses INTEGER DEFAULT 0,
   workspace_id     TEXT NOT NULL DEFAULT '',     -- owning workspace ('' = legacy owner-private rows pending backfill)
-  actor_id         TEXT NOT NULL DEFAULT ''      -- user who wrote it ('' = the owner, pre-team writes)
+  actor_id         TEXT NOT NULL DEFAULT '',     -- user who wrote it ('' = the owner, pre-team writes)
+  clearance_level  INTEGER NOT NULL DEFAULT 12,  -- P0 restricted leadership -> P12 broad company access
+  directory_id     TEXT,                         -- optional brain_directories resource boundary
+  source_path      TEXT                          -- relative source path for bulk/external ingest
   -- Runtime ALTER columns (see src/db/init.ts): updated_at, staleness_checked_at
 );
 
@@ -22,6 +25,8 @@ CREATE INDEX IF NOT EXISTS idx_entries_source ON entries(source);
 -- index is what keeps that shape a range search rather than a sort.
 CREATE INDEX IF NOT EXISTS idx_entries_workspace_created
   ON entries(workspace_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_entries_clearance
+  ON entries(workspace_id, clearance_level, created_at DESC);
 
 -- Relationship graph (issue #16). One additive table — old code ignores it and
 -- rollback is a no-op. Designed to never need an ALTER: type/provenance are free
@@ -83,6 +88,34 @@ CREATE TABLE IF NOT EXISTS workspaces (
   name        TEXT NOT NULL DEFAULT '',
   created_at  INTEGER NOT NULL
 );
+
+-- Volanos permission resources. A directory can be public to its workspace
+-- subject to clearance, or become an explicit ACL once grants are present.
+CREATE TABLE IF NOT EXISTS brain_directories (
+  id                TEXT PRIMARY KEY,
+  workspace_id      TEXT NOT NULL,
+  parent_id         TEXT,
+  name              TEXT NOT NULL,
+  path              TEXT NOT NULL,
+  default_clearance INTEGER NOT NULL DEFAULT 12,
+  owner_id          TEXT NOT NULL,
+  created_at        INTEGER NOT NULL,
+  UNIQUE(workspace_id, path)
+);
+CREATE INDEX IF NOT EXISTS idx_brain_directories_workspace
+  ON brain_directories(workspace_id, path);
+
+CREATE TABLE IF NOT EXISTS brain_directory_grants (
+  directory_id TEXT NOT NULL,
+  user_id      TEXT NOT NULL,
+  can_read     INTEGER NOT NULL DEFAULT 1,
+  can_write    INTEGER NOT NULL DEFAULT 0,
+  can_delete   INTEGER NOT NULL DEFAULT 0,
+  created_at   INTEGER NOT NULL,
+  PRIMARY KEY(directory_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_brain_directory_grants_user
+  ON brain_directory_grants(user_id, directory_id);
 
 -- Authoritative version for each workspace's Prompt Capsule. The full Capsule
 -- body is cached in eventually-consistent KV, but this revision is read from D1
@@ -150,6 +183,7 @@ CREATE TABLE IF NOT EXISTS users (
   default_share TEXT NOT NULL DEFAULT '',          -- capture-visibility override ('' = inherit org TEAM_DEFAULT_WORKSPACE)
   removed_at    INTEGER,                            -- soft offboarding, NULL/0 = active member
   last_used_at  INTEGER                             -- last successful identity resolution (throttled; NULL = never seen since the column shipped)
+  ,clearance_floor INTEGER NOT NULL DEFAULT 12      -- member's lowest readable clearance; admin is unrestricted
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_token_hash ON users(token_hash);

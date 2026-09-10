@@ -1,4 +1,5 @@
 import type { Identity } from "./identity";
+import { entryPermissionClause } from "./permissions";
 
 /**
  * The one place workspace scoping is spelled out. Every SQL statement whose rows
@@ -14,7 +15,7 @@ import type { Identity } from "./identity";
 
 export interface ScopeClause {
   clause: string;
-  bindings: string[];
+  bindings: (string | number)[];
 }
 
 /**
@@ -26,6 +27,9 @@ export interface ScopeClause {
 export interface WriteContext {
   workspaceId: string;
   actorId: string;
+  clearanceLevel?: number;
+  directoryId?: string | null;
+  sourcePath?: string | null;
 }
 
 /**
@@ -96,7 +100,17 @@ export function scopeWorkspaces(identity: Identity, only?: "personal" | "company
 
 export function scopeWhere(identity: Identity, only?: "personal" | "company", column = "workspace_id"): ScopeClause {
   const workspaces = scopeWorkspaces(identity, only);
-  return { clause: `${column} IN (${workspaces.map(() => "?").join(", ")})`, bindings: workspaces };
+  // All default callers address entries. Aliased callers (a.workspace_id) are
+  // also entries. Edge queries keep their existing workspace predicate and are
+  // hydrated through scoped entry reads before content is returned.
+  const alias = column.endsWith(".workspace_id") && !column.startsWith("edges.")
+    ? column.slice(0, -".workspace_id".length)
+    : "";
+  const permissions = column.startsWith("edges.") ? { clause: "", bindings: [] as (string | number)[] } : entryPermissionClause(identity, alias);
+  return {
+    clause: `${column} IN (${workspaces.map(() => "?").join(", ")})${permissions.clause ? ` AND ${permissions.clause}` : ""}`,
+    bindings: [...workspaces, ...permissions.bindings],
+  };
 }
 
 /** Read-side scope: optional layer and/or a single validated team workspace id. */
@@ -106,7 +120,14 @@ export function scopeWhereForRead(
   column = "workspace_id",
 ): ScopeClause {
   if (opts?.teamId) {
-    return { clause: `${column} = ?`, bindings: [opts.teamId] };
+    const alias = column.endsWith(".workspace_id") && !column.startsWith("edges.")
+      ? column.slice(0, -".workspace_id".length)
+      : "";
+    const permissions = column.startsWith("edges.") ? { clause: "", bindings: [] as (string | number)[] } : entryPermissionClause(identity, alias);
+    return {
+      clause: `${column} = ?${permissions.clause ? ` AND ${permissions.clause}` : ""}`,
+      bindings: [opts.teamId, ...permissions.bindings],
+    };
   }
   return scopeWhere(identity, opts?.layer, column);
 }

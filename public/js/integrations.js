@@ -11,9 +11,30 @@ const CATEGORY_META = [
 
 const INTEGRATION_ICONS = {
   notion: 'ti-brand-notion',
+  github: 'ti-brand-github',
+  'google-drive': 'ti-brand-google-drive',
   'calendar-google': 'ti-brand-google',
   'calendar-outlook': 'ti-brand-windows',
   'calendar-icloud': 'ti-brand-apple',
+}
+
+function integrationConfigFields(provider) {
+  if (provider === 'github') {
+    return `<div class="integration-config-grid">
+      <input id="cfg-github-repo" placeholder="owner/repository" aria-label="GitHub repository" autocomplete="off" />
+      <input id="cfg-github-ref" placeholder="Branch (main)" aria-label="GitHub branch" autocomplete="off" />
+      <input id="cfg-github-path" placeholder="Folder prefix (optional)" aria-label="GitHub folder prefix" autocomplete="off" />
+      <select id="cfg-github-clearance" aria-label="Default clearance">${Array.from({ length: 13 }, (_, level) => `<option value="${level}"${level === 8 ? ' selected' : ''}>P${level} · clearance</option>`).join('')}</select>
+    </div>`
+  }
+  if (provider === 'google-drive') {
+    return `<div class="integration-config-grid">
+      <input id="cfg-drive-folder" placeholder="Google Drive folder ID (root)" aria-label="Google Drive folder" autocomplete="off" />
+      <input id="cfg-drive-directory" placeholder="Directory ID (optional)" aria-label="Brain directory" autocomplete="off" />
+      <select id="cfg-drive-clearance" aria-label="Default clearance">${Array.from({ length: 13 }, (_, level) => `<option value="${level}"${level === 8 ? ' selected' : ''}>P${level} · clearance</option>`).join('')}</select>
+    </div>`
+  }
+  return ''
 }
 
 /** Whether this caller may change connections; see loadIntegrations. */
@@ -170,6 +191,7 @@ function renderIntegrationCard(info) {
       )
       inputs = `<input type="password" id="tok-${p}" placeholder="${placeholder}" aria-label="${label}" autocomplete="off" />`
     }
+    const configFields = integrationConfigFields(p)
     const mirrorLayer = TEAM_MODE
       ? `<span class="team-select-wrap"><select class="team-select" id="ws-${p}" title="${escAttr(t('integrations.mirrorLayerTitle'))}">
           <option value="personal">${escHtml(t('team.sharePersonal'))}</option>
@@ -179,6 +201,7 @@ function renderIntegrationCard(info) {
     const connectRow = integrationsAdmin
       ? `<div class="integration-connect-row${isEmail ? ' integration-connect-col' : ''}">
           ${inputs}
+          ${configFields}
           ${mirrorLayer}
           <button class="digest-btn" onclick="connectIntegration('${p}', this)">${escHtml(t('auth.connect'))}</button>
         </div>
@@ -255,6 +278,17 @@ async function connectIntegration(provider, btn) {
   }
   const wsEl = document.getElementById(`ws-${provider}`)
   const workspace = wsEl && TEAM_MODE ? wsEl.value : 'personal'
+  const config = {}
+  if (provider === 'github') {
+    config.repo = (document.getElementById('cfg-github-repo')?.value || '').trim()
+    config.ref = (document.getElementById('cfg-github-ref')?.value || '').trim() || 'main'
+    config.path = (document.getElementById('cfg-github-path')?.value || '').trim()
+    config.defaultClearance = Number(document.getElementById('cfg-github-clearance')?.value ?? 8)
+  } else if (provider === 'google-drive') {
+    config.folderId = (document.getElementById('cfg-drive-folder')?.value || '').trim() || 'root'
+    config.directoryId = (document.getElementById('cfg-drive-directory')?.value || '').trim()
+    config.defaultClearance = Number(document.getElementById('cfg-drive-clearance')?.value ?? 8)
+  }
   btn.disabled = true
   btn.textContent = t('auth.connectingEllipsis')
   errEl.textContent = ''
@@ -262,7 +296,7 @@ async function connectIntegration(provider, btn) {
     const res = await fetch(`${WORKER_URL}/integrations/${provider}/connect`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${AUTH_TOKEN}` },
-      body: JSON.stringify({ token, workspace }),
+      body: JSON.stringify({ token, workspace, ...(Object.keys(config).length ? { config } : {}) }),
     })
     const data = await res.json()
     if (!res.ok || !data.ok) throw new Error(data.error || t('integrations.couldNotConnectShort'))

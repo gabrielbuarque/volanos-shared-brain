@@ -85,7 +85,7 @@ export async function handleIntegrationsRoutes(
     // (server-side; the browser can't for CORS reasons) and store it only if
     // it works.
     if (action === "connect") {
-      let body: { token?: string; workspace?: string };
+      let body: { token?: string; workspace?: string; config?: Record<string, unknown> };
       try { body = await request.json(); } catch { return json({ ok: false, error: "Invalid JSON" }, 400); }
       const token = body.token?.trim();
       if (!token) return json({ ok: false, error: "token is required" }, 400);
@@ -104,7 +104,7 @@ export async function handleIntegrationsRoutes(
       const now = Date.now();
       const record: IntegrationRecord = {
         provider: provider.id,
-        authKind: "token",
+        authKind: provider.authKind ?? "token",
         credentials: { token },
         // connectedByUserId is written on EVERY connect, reconnects included:
         // the person who last handed the deployment a token is the person to
@@ -112,7 +112,7 @@ export async function handleIntegrationsRoutes(
         // original one. It lives in `config` beside mirrorWorkspace — the
         // documented escape hatch, carried across reconnects by the spread, and
         // one place to look for connection policy.
-        config: { ...(existing?.config ?? {}), mirrorWorkspace, connectedByUserId: auth.userId },
+        config: { ...(existing?.config ?? {}), ...(body.config ?? {}), mirrorWorkspace, connectedByUserId: auth.userId },
         status: "connected",
         workspaceName,
         lastSyncedAt: existing?.lastSyncedAt ?? null,

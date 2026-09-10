@@ -151,7 +151,7 @@ export async function expandGraph(
   if (hops === 0 || seedIds.length === 0) return [];
   const fanoutCap = opts.fanoutCap ?? GRAPH_FANOUT_CAP;
   const maxNodes = opts.maxNodes ?? GRAPH_MAX_NODES;
-  const scope = identity ? scopeWhereForRead(identity, { layer: opts.only, teamId: opts.teamId }) : null;
+  const scope = identity ? scopeWhereForRead(identity, { layer: opts.only, teamId: opts.teamId }, "edges.workspace_id") : null;
 
   const visited = new Set(seedIds);
   const out: GraphNeighbor[] = [];
@@ -283,7 +283,7 @@ export async function buildGraph(opts: { seed?: string; limit?: number; only?: "
   // `only` narrows every one of the three scoped statements below — the edge
   // scan, the seed walk and the node hydration. Narrowing one and not the rest
   // would answer with nodes from one layer joined by edges from both.
-  const scope = identity ? scopeWhereForRead(identity, { layer: opts.only, teamId: opts.teamId }) : null;
+  const scope = identity ? scopeWhereForRead(identity, { layer: opts.only, teamId: opts.teamId }, "edges.workspace_id") : null;
   if (opts.seed) {
     const neighbors = await expandGraph([opts.seed], { hops: 2, maxNodes: limit, includeDeprecated: true, only: opts.only, teamId: opts.teamId }, env, config, identity);
     nodeIds = [opts.seed, ...neighbors.map(n => n.id)].slice(0, limit);

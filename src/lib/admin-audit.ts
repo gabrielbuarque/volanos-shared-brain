@@ -20,7 +20,10 @@ export type AdminEventName =
   | "member_profile_updated"
   | "team_renamed"
   | "integration_connected"
-  | "integration_disconnected";
+  | "integration_disconnected"
+  | "member_clearance_set"
+  | "directory_created"
+  | "directory_grant_set";
 
 export function adminAuditEvent(
   env: Env,

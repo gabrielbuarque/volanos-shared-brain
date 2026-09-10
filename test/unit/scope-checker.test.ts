@@ -12,6 +12,7 @@
  */
 import { describe, it, expect } from "vitest";
 import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { scanSource } from "../../scripts/check-scope.mjs";
@@ -1135,11 +1136,9 @@ describe("the checker over the real source tree", () => {
   });
 
   it("is wired into package.json and CI, or nothing runs it", () => {
-    const pkg = JSON.parse(
-      spawnSync("cat", [resolve(ROOT, "package.json")], { encoding: "utf8" }).stdout,
-    );
+    const pkg = JSON.parse(readFileSync(resolve(ROOT, "package.json"), "utf8"));
     expect(pkg.scripts["check:scope"]).toBe("node scripts/check-scope.mjs");
-    const ci = spawnSync("cat", [resolve(ROOT, ".github/workflows/ci.yml")], { encoding: "utf8" }).stdout;
+    const ci = readFileSync(resolve(ROOT, ".github/workflows/ci.yml"), "utf8");
     expect(ci).toContain("npm run check:scope");
   });
 });

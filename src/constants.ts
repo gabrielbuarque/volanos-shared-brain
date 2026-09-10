@@ -62,7 +62,7 @@ export const CHUNK_MAX_CHARS = 1600;
 export const MIRRORED_SOURCES: ReadonlySet<string> = new Set([
   "calendar-google", "calendar-outlook", "calendar-icloud",
   "email-gmail", "email-icloud",
-  "notion", "git-hook", "obsidian",
+  "notion", "github", "google-drive", "git-hook", "obsidian",
 ]);
 
 // Sources that record a conversation rather than a thought — a client pasting

@@ -20,6 +20,8 @@ export interface Identity {
    * identity so the write path never needs a second lookup.
    */
   defaultShare: "personal" | "company" | "";
+  /** Lowest clearance a member may read/write. P0 is most restricted; P12 is broadest. */
+  clearanceFloor?: number;
 }
 
 /**
@@ -60,7 +62,7 @@ const IDENTITY_FROM =
   ` LEFT JOIN workspaces c ON c.id = mc.workspace_id AND c.kind = 'company'`;
 
 const IDENTITY_SQL =
-  `SELECT u.id AS userId, u.role AS role, u.default_share AS defaultShare,` +
+  `SELECT u.id AS userId, u.role AS role, u.default_share AS defaultShare, u.clearance_floor AS clearanceFloor,` +
   ` p.id AS personalWorkspaceId, ${COMPANY_WORKSPACES_SELECT}` +
   IDENTITY_FROM +
   ` WHERE u.token_hash = ? AND u.suspended = 0 AND (u.removed_at IS NULL OR u.removed_at = 0)` +
@@ -82,7 +84,7 @@ const LAST_USED_UPDATE_SQL =
 
 // Resolve identity after ensuring the v3 schema and tenancy rows exist.
 const IDENTITY_BY_ID_SQL =
-  `SELECT u.id AS userId, u.role AS role, u.default_share AS defaultShare,` +
+  `SELECT u.id AS userId, u.role AS role, u.default_share AS defaultShare, u.clearance_floor AS clearanceFloor,` +
   ` p.id AS personalWorkspaceId, ${COMPANY_WORKSPACES_SELECT}` +
   IDENTITY_FROM +
   ` WHERE u.id = ? AND u.suspended = 0 AND (u.removed_at IS NULL OR u.removed_at = 0)` +
@@ -110,6 +112,7 @@ interface IdentityRow {
   userId: string;
   role: string;
   defaultShare: string | null;
+  clearanceFloor: number | null;
   personalWorkspaceId: string;
   companyWorkspaces?: string | null;
 }
@@ -121,6 +124,7 @@ function rowToIdentity(row: IdentityRow): Identity {
     personalWorkspaceId: row.personalWorkspaceId,
     companyWorkspaceIds: parseCompanyWorkspaces(row.companyWorkspaces),
     defaultShare: row.defaultShare === "company" ? "company" : row.defaultShare === "personal" ? "personal" : "",
+    clearanceFloor: Number.isInteger(row.clearanceFloor) ? Math.max(0, Math.min(12, Number(row.clearanceFloor))) : 12,
   };
 }
 
@@ -166,7 +170,7 @@ export async function resolveIdentityByUserId(env: Env, userId: string): Promise
   }
   const row = await env.DB.prepare(IDENTITY_BY_ID_SQL)
     .bind(id)
-    .first<{ userId: string; role: string; defaultShare: string | null; personalWorkspaceId: string; companyWorkspaces: string | null }>();
+    .first<{ userId: string; role: string; defaultShare: string | null; clearanceFloor: number | null; personalWorkspaceId: string; companyWorkspaces: string | null }>();
   if (!row) return null;
   return rowToIdentity(row);
 }

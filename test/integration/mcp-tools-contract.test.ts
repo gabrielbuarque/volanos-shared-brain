@@ -366,7 +366,7 @@ describe("tool definitions have a single source of truth", () => {
   it("registers tools only in src/mcp/server.ts", () => {
     const registrars = walk(SRC)
       .filter((file) => readFileSync(file, "utf8").includes("registerTool("))
-      .map((file) => relative(SRC, file));
+      .map((file) => relative(SRC, file).replace(/\\/g, "/"));
     expect(registrars).toEqual(["mcp/server.ts"]);
   });
 

@@ -627,10 +627,10 @@ describe("the activity feed's event vocabulary", () => {
   });
 
   it("holds the admitted set at the size the endpoint's two arms produce", () => {
-    // Ten AdminEventName + four entry-arm names. Deliberately pinned: a name
+    // Thirteen AdminEventName + four entry-arm names. Deliberately pinned: a name
     // arriving in src/ has to be a decision taken here, in the same commit
     // that gives it a sentence in both catalogs.
-    expect(admitted()).toHaveLength(14);
+    expect(admitted()).toHaveLength(17);
   });
 
   it("keeps the entry-arm names it lists anchored to EntryEventName", () => {

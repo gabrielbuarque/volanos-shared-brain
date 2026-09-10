@@ -339,6 +339,7 @@ function teamMemberRow(m) {
         title: t('team.defaultShareTitle'),
         label: t('team.defaultShareLabel'),
       })}
+      ${teamClearanceSelect(m)}
       <div class="team-actions">${actions.join('')}</div>
     </div>`
 }
@@ -764,6 +765,18 @@ function teamShareSelect({ id, onchange, selected, title, label }) {
       </label>`
 }
 
+function teamClearanceSelect(m) {
+  const selected = Number.isInteger(Number(m.clearanceFloor)) ? Number(m.clearanceFloor) : 12
+  return `<label class="team-capture-label" title="Lowest readable clearance level; P0 is most restricted">
+        Clearance
+        <span class="team-select-wrap">
+          <select class="team-select" onchange="setMemberClearance('${escAttr(m.userId)}', this.value)">
+            ${Array.from({ length: 13 }, (_, level) => `<option value="${level}"${selected === level ? ' selected' : ''}>P${level}</option>`).join('')}
+          </select><i class="ti ti-chevron-down"></i>
+        </span>
+      </label>`
+}
+
 async function setMemberDefaultShare(id, value) {
   const m = teamMembers.find((x) => x.userId === id)
   if (!m) return
@@ -772,6 +785,28 @@ async function setMemberDefaultShare(id, value) {
     if (!r.ok || !r.data.ok) throw new Error(r.data.error || t('team.actionFailed'))
     m.defaultShare = value === 'inherit' ? '' : value
     renderTeam()
+  } catch (e) {
+    showToast(e.message || t('team.actionFailed'))
+    await loadTeam()
+  }
+}
+
+async function setMemberClearance(id, value) {
+  const m = teamMembers.find((x) => x.userId === id)
+  if (!m) return
+  const level = Number(value)
+  if (!Number.isInteger(level) || level < 0 || level > 12) return
+  try {
+    const r = await fetch(`${WORKER_URL}/permissions/members/clearance`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${AUTH_TOKEN}` },
+      body: JSON.stringify({ id, clearance_floor: level }),
+    })
+    const data = await r.json()
+    if (!r.ok || !data.ok) throw new Error(data.error || t('team.actionFailed'))
+    m.clearanceFloor = level
+    renderTeam()
+    showToast(`Clearance P${level} salvo`)
   } catch (e) {
     showToast(e.message || t('team.actionFailed'))
     await loadTeam()

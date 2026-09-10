@@ -37,13 +37,13 @@ const tagMatchesLike = (tags: string[], tag: string) =>
 /** What src/db/init.ts's probe sees on a migrated brain — see the handler in all(). */
 const TRIGGER_DDL = new Map([...readFileSync(resolve(import.meta.dirname, "../../db/schema.sql"), "utf8").matchAll(/CREATE TRIGGER IF NOT EXISTS (\w+)[\s\S]*?END;/g)].map(m => [m[1], m[0].slice(0, -1)]));
 const SCHEMA_PROBE_RESULTS = [
-  ...["entries", "edges", "insight_candidates", "workspaces", "users", "memberships",
+  ...["entries", "edges", "insight_candidates", "workspaces", "users", "memberships", "brain_directories", "brain_directory_grants",
     "entry_events", "admin_events", "maintenance_cursor", "prompt_capsule_revisions"]
     .map(name => ({ kind: "table", name })),
   ...["idx_entries_created_at", "idx_entries_source", "idx_entries_workspace_created", "idx_entries_capsule",
     "idx_edges_source", "idx_edges_target", "idx_edges_weight", "idx_insight_candidates_queue",
     "idx_workspaces_kind", "idx_users_token_hash", "idx_users_email", "idx_memberships_workspace",
-    "idx_entry_events_entry", "idx_entry_events_created", "idx_admin_events_created"]
+    "idx_entry_events_entry", "idx_entry_events_created", "idx_admin_events_created", "idx_brain_directories_workspace", "idx_brain_directory_grants_user", "idx_entries_clearance"]
     .map(name => ({ kind: "index", name })),
   ...["prompt_capsule_entry_insert", "prompt_capsule_entry_update",
     "prompt_capsule_entry_delete", "prompt_capsule_workspace_delete"]
@@ -51,13 +51,14 @@ const SCHEMA_PROBE_RESULTS = [
   ...["id", "content", "tags", "source", "created_at", "vector_ids", "recall_count",
     "importance_score", "contradiction_wins", "contradiction_losses", "updated_at",
     "staleness_checked_at"].map(name => ({ kind: "column", name })),
-  ...["workspace_id", "actor_id"].map(name => ({ kind: "column", name })),
+  ...["workspace_id", "actor_id", "clearance_level", "directory_id", "source_path"].map(name => ({ kind: "column", name })),
   // edges.workspace_id arrives by ALTER on upgraded brains and lives in the base
   // CREATE on fresh ones — either way a migrated brain reports it.
   { kind: "edge_column", name: "workspace_id" },
   { kind: "user_column", name: "default_share" },
   { kind: "user_column", name: "removed_at" },
   { kind: "user_column", name: "last_used_at" },
+  { kind: "user_column", name: "clearance_floor" },
   // admin_events' subject columns arrive by ALTER on brains created before they
   // existed and live in the base CREATE on fresh ones — a migrated brain reports
   // both either way. Omitting them here would make this double claim a brain
@@ -187,6 +188,9 @@ export class D1Mock {
             importance_score: 0,
             contradiction_wins: 0,
             contradiction_losses: 0,
+            clearance_level: 12,
+            directory_id: null,
+            source_path: null,
           };
           cols.forEach((col, i) => { row[col] = args[i]; });
           if (row.updated_at === undefined) row.updated_at = row.created_at ?? Date.now();
@@ -916,7 +920,7 @@ export class D1Mock {
             .map((e: any) => ({ id: e.id, content: e.content, tags: e.tags, source: e.source, created_at: e.created_at }));
           return { results: rows };
         }
-        if (s.startsWith("SELECT id, content, tags, source, created_at, COALESCE(updated_at, created_at) AS last_updated, recall_count, importance_score, contradiction_wins, contradiction_losses FROM entries") && s.includes("ORDER BY created_at DESC") && !s.includes("WHERE id = ?")) {
+        if (s.startsWith("SELECT id, content, tags, source, created_at, COALESCE(updated_at, created_at) AS last_updated, recall_count, importance_score, contradiction_wins, contradiction_losses, clearance_level, directory_id, source_path FROM entries") && s.includes("ORDER BY created_at DESC") && !s.includes("WHERE id = ?")) {
           // GET /export: the caller's readable set, newest first, no LIMIT. The
           // route appends `WHERE workspace_id IN (?, ?)` (bound to args), so
           // rows outside those workspaces are withheld here too. `last_updated`
@@ -931,6 +935,7 @@ export class D1Mock {
               last_updated: e.updated_at ?? e.created_at,
               recall_count: e.recall_count ?? 0, importance_score: e.importance_score ?? 0,
               contradiction_wins: e.contradiction_wins ?? 0, contradiction_losses: e.contradiction_losses ?? 0,
+              clearance_level: e.clearance_level ?? 12, directory_id: e.directory_id ?? null, source_path: e.source_path ?? null,
             }));
           return { results };
         }

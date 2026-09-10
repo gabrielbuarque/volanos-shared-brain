@@ -240,8 +240,8 @@ function scanCallSites() {
   const dynamicHits: DynamicHit[] = [];
 
   for (const file of listPublicFiles(PUBLIC_ROOT)) {
-    if (file.endsWith("/public/js/i18n.js")) continue; // the catalogs/engine, not a caller
-    const rel = relative(ROOT, file);
+    const rel = relative(ROOT, file).replace(/\\/g, "/");
+    if (rel === "public/js/i18n.js") continue; // the catalogs/engine, not a caller
     const content = readFileSync(file, "utf8");
 
     // This scan runs over raw file text with no comment stripping, so it is deliberately

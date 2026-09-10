@@ -7,7 +7,7 @@ import {
   saveIntegration,
   deleteIntegration,
 } from "../integrations";
-import type { IntegrationProvider, MirrorStore } from "./framework";
+import type { IntegrationProvider, MirrorEntryOptions, MirrorStore } from "./framework";
 import { initializeDatabase } from "../db/init";
 import { forgetEntry } from "../capture/lifecycle";
 import { deleteStaleVectors, storeEntry } from "../capture/store";
@@ -40,7 +40,7 @@ export function makeMirrorStore(env: Env, writeCtx: WriteContext = OWNER_WRITE_C
   const config = () => (pending ??= resolveConfig(env));
 
   return {
-    async createEntry(content, tags, source) {
+    async createEntry(content, tags, source, options: MirrorEntryOptions = {}) {
       const id = crypto.randomUUID();
       const now = Date.now();
       // Classify like a normal capture so mirror entries (email, calendar,
@@ -61,8 +61,8 @@ export function makeMirrorStore(env: Env, writeCtx: WriteContext = OWNER_WRITE_C
         console.error("Mirror classify failed (non-fatal):", e);
       }
       await env.DB.prepare(
-        `INSERT INTO entries (id, content, tags, source, created_at, updated_at, vector_ids, importance_score, workspace_id, actor_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      ).bind(id, content, JSON.stringify(finalTags), source, now, now, "[]", importance, writeCtx.workspaceId, writeCtx.actorId).run();
+        `INSERT INTO entries (id, content, tags, source, created_at, updated_at, vector_ids, importance_score, workspace_id, actor_id, clearance_level, directory_id, source_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).bind(id, content, JSON.stringify(finalTags), source, now, now, "[]", importance, writeCtx.workspaceId, writeCtx.actorId, options.clearanceLevel ?? writeCtx.clearanceLevel ?? 12, options.directoryId ?? writeCtx.directoryId ?? null, options.sourcePath ?? writeCtx.sourcePath ?? null).run();
       // Promptness, not correctness (#288). Every tag inserted here is a compile-time
       // constant — a provider id from the registry in integrations/index.ts, plus
       // whatever kind:/status: the classifier added — so the vocabulary's age limit
@@ -80,10 +80,10 @@ export function makeMirrorStore(env: Env, writeCtx: WriteContext = OWNER_WRITE_C
       }
       return id;
     },
-    async updateEntry(id, content) {
+    async updateEntry(id, content, options: MirrorEntryOptions = {}) {
       const row = await env.DB.prepare(
         // scope-exempt: by-id: the mirrored row this connector wrote
-        `SELECT tags, source, vector_ids FROM entries WHERE id = ?`
+        `SELECT tags, source, vector_ids, workspace_id, clearance_level, directory_id, source_path FROM entries WHERE id = ?`
       ).bind(id).first() as Record<string, any> | null;
       if (!row) return false;
 
@@ -98,7 +98,13 @@ export function makeMirrorStore(env: Env, writeCtx: WriteContext = OWNER_WRITE_C
       const cfg = await config();
       let newVectorIds: string[] = [];
       try {
-        newVectorIds = (await storeEntry(env, id, content, refreshedTags, row.source as string, now, cfg, writeCtx)).vectorIds;
+        newVectorIds = (await storeEntry(env, id, content, refreshedTags, row.source as string, now, cfg, {
+          ...writeCtx,
+          workspaceId: String(row.workspace_id ?? writeCtx.workspaceId),
+          clearanceLevel: Number(row.clearance_level ?? writeCtx.clearanceLevel ?? 12),
+          directoryId: typeof row.directory_id === "string" ? row.directory_id : writeCtx.directoryId,
+          sourcePath: options.sourcePath ?? (typeof row.source_path === "string" ? row.source_path : writeCtx.sourcePath),
+        })).vectorIds;
       } catch (e) {
         console.error("Vectorize re-embed failed (non-fatal):", e);
       }
@@ -220,13 +226,21 @@ export async function runScheduledIntegrationSync(env: Env): Promise<void> {
  */
 export async function mirrorWriteContext(
   env: Env,
-  record: { config?: { mirrorWorkspace?: string } } | null,
+  record: { config?: { mirrorWorkspace?: string; defaultClearance?: unknown; directoryId?: unknown } } | null,
 ): Promise<WriteContext> {
   const mirrorWorkspace = record?.config?.mirrorWorkspace === "company" ? "company" : "personal";
   try {
     const roots = await ensureTenantBootstrap(env);
     const owner = await resolveIdentityByUserId(env, roots.ownerUserId);
-    if (owner) return { workspaceId: scopeWrite(owner, mirrorWorkspace), actorId: owner.userId };
+    if (owner) {
+      const context: WriteContext = {
+        workspaceId: scopeWrite(owner, mirrorWorkspace),
+        actorId: owner.userId,
+      };
+      if (typeof record?.config?.defaultClearance === "number") context.clearanceLevel = record.config.defaultClearance;
+      if (typeof record?.config?.directoryId === "string") context.directoryId = record.config.directoryId;
+      return context;
+    }
   } catch (e) {
     console.error("Integration identity resolve failed (non-fatal):", e);
   }

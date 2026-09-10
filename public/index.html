@@ -1,18 +1,13 @@
 <!doctype html>
-<html lang="en">
+<html lang="pt-BR">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-    <meta name="apple-mobile-web-app-title" content="Second Brain" />
-    <meta name="theme-color" content="#ffffff" />
-    <title>Second Brain</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,500;0,600;1,400;1,500&family=Geist:wght@300;400;500;600&display=swap"
-      rel="stylesheet"
-    />
+    <meta name="apple-mobile-web-app-title" content="Volanos Shared Brain" />
+    <meta name="theme-color" content="#0F1F49" />
+    <title>Volanos Shared Brain</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.44.0/tabler-icons.min.css" />
     <link rel="icon" type="image/svg+xml" href="/sb-mark-square.svg" />
     <link rel="manifest" href="/manifest.json" />
@@ -23,11 +18,10 @@
   <body>
     <div id="auth-overlay">
       <div class="auth-card">
-        <div class="brain-logo">
-          <i class="ti ti-brain"></i>
-        </div>
-        <h1 data-i18n="auth.brand">Second Brain</h1>
-        <p data-i18n="auth.subtitle">Enter your Bearer token to connect to your personal memory layer. This is the password you chose when you set up Second Brain.</p>
+          <div class="volanos-auth-mark" aria-hidden="true"><img src="assets/volanos-symbol-blue.svg" alt="" /></div>
+        <div class="volanos-kicker">VOLANOS / KNOWLEDGE SYSTEM</div>
+        <h1 data-i18n="auth.brand">Shared Brain</h1>
+        <p data-i18n="auth.subtitle">Conecte seu token para acessar sua camada de memória e o conhecimento compartilhado da Volanos.</p>
         <form
           class="field-group"
           onsubmit="
@@ -56,14 +50,14 @@
       <div id="sidebar">
         <div class="sb-logo">
           <div class="brain-avatar">
-            <i class="ti ti-brain"></i>
+            <img class="brain-mark" src="assets/volanos-symbol-blue.svg" alt="Volanos" />
           </div>
           <div>
-            <div class="sb-brand-name">Second Brain</div>
+            <div class="sb-brand-name">Shared Brain</div>
             <!-- Which company's shared layer this member writes into. Hidden on a
                  solo brain, where there is no other layer to distinguish. -->
             <div class="sb-brand-team" id="sb-team-name" style="display: none"></div>
-            <div class="sb-brand-status" id="sb-status" data-i18n="nav.statusEmpty">always remembers</div>
+            <div class="sb-brand-status" id="sb-status" data-i18n="nav.statusEmpty">Volanos knowledge system</div>
           </div>
         </div>
         <!-- Two destinations, not four. Recall and Remember were verbs and the
@@ -86,10 +80,10 @@
       <div id="main-panel">
         <div id="topbar">
           <div class="brain-avatar">
-            <i class="ti ti-brain"></i>
+            <img class="brain-mark" src="assets/volanos-symbol-blue.svg" alt="Volanos" />
           </div>
           <div class="topbar-info">
-            <div class="topbar-name">Second Brain</div>
+            <div class="topbar-name">Shared Brain</div>
             <!-- Same line the sidebar carries. The sidebar is hidden on phone
                  widths, so without this a member on their phone never learns
                  which team they are sharing into. -->

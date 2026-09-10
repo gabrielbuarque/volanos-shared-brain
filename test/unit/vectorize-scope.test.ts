@@ -13,6 +13,7 @@ const identity: Identity = {
   personalWorkspaceId: "ws-p",
   companyWorkspaceIds: ["ws-c"],
   defaultShare: "" as const,
+  clearanceFloor: 12,
 };
 
 describe("vectorize workspace scoping", () => {
@@ -21,7 +22,7 @@ describe("vectorize workspace scoping", () => {
   beforeEach(() => resetVectorizeFilterState());
 
   it("builds the readable-set filter for queries and the single-workspace filter for writes", () => {
-    expect(workspaceFilter(identity)).toEqual({ filter: { workspace_id: { $in: ["ws-p", "ws-c"] } } });
+    expect(workspaceFilter(identity)).toEqual({ filter: { workspace_id: { $in: ["ws-p", "ws-c"] }, clearance_level: { $gte: 12 } } });
     expect(singleWorkspaceFilter("ws-p")).toEqual({ filter: { workspace_id: { $in: ["ws-p"] } } });
   });
 

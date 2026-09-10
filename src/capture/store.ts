@@ -14,8 +14,14 @@ import { withVolatility, type Volatility } from "../memory/volatility";
 import { OWNER_WRITE_CONTEXT, type WriteContext } from "../lib/scope";
 
 /** Re-embedding must stamp vectors from the row being edited, not the caller's default write target. */
-function embedContextForRow(row: { workspace_id?: unknown }, writeCtx: WriteContext): WriteContext {
-  return { workspaceId: typeof row.workspace_id === "string" ? row.workspace_id : "", actorId: writeCtx.actorId };
+function embedContextForRow(row: { workspace_id?: unknown; clearance_level?: unknown; directory_id?: unknown; source_path?: unknown }, writeCtx: WriteContext): WriteContext {
+  return {
+    workspaceId: typeof row.workspace_id === "string" ? row.workspace_id : "",
+    actorId: writeCtx.actorId,
+    clearanceLevel: typeof row.clearance_level === "number" ? row.clearance_level : writeCtx.clearanceLevel,
+    directoryId: typeof row.directory_id === "string" ? row.directory_id : writeCtx.directoryId,
+    sourcePath: typeof row.source_path === "string" ? row.source_path : writeCtx.sourcePath,
+  };
 }
 
 /**
@@ -68,6 +74,8 @@ export async function storeEntry(
         // it (with a graceful fallback — see src/vectorize/scope.ts); system
         // passes query unfiltered.
         workspace_id: writeCtx.workspaceId,
+        clearance_level: writeCtx.clearanceLevel ?? 12,
+        directory_id: writeCtx.directoryId ?? null,
       };
 
       tags.forEach(t => {
@@ -179,7 +187,7 @@ export async function updateEntryContent(
   // cleanup below needs to know which vectors the entry had on the way in.
   const row = await env.DB.prepare(
     // scope-exempt: by-id: routes gate with getReadableEntry + assertCanEditContent
-    `SELECT tags, source, vector_ids, workspace_id FROM entries WHERE id = ?`
+    `SELECT tags, source, vector_ids, workspace_id, clearance_level, directory_id, source_path FROM entries WHERE id = ?`
   ).bind(id).first() as Record<string, any> | null;
 
   if (!row) return { status: "not_found" };
@@ -281,7 +289,7 @@ export async function appendToEntry(
 ): Promise<boolean> {
   const row = await env.DB.prepare(
     // scope-exempt: by-id: routes gate with getReadableEntry + assertCanEditContent
-    `SELECT vector_ids, workspace_id FROM entries WHERE id = ?`
+    `SELECT vector_ids, workspace_id, clearance_level, directory_id, source_path FROM entries WHERE id = ?`
   ).bind(id).first() as Record<string, any> | null;
 
   const existingVectorIds: string[] = JSON.parse(row?.vector_ids ?? "[]");
@@ -342,6 +350,8 @@ export async function appendToEntry(
     source,
     created_at: Date.now(),
     workspace_id: rowWorkspaceId,
+    clearance_level: embedCtx.clearanceLevel ?? 12,
+    directory_id: embedCtx.directoryId ?? null,
   };
 
   tags.forEach(t => {
