@@ -2649,7 +2649,7 @@
       }
 
       .integration-row {
-        padding: 16px 0;
+        padding: 20px 0 22px;
       }
 
       .integration-row + .integration-row {
@@ -2701,7 +2701,7 @@
         font-size: 13px;
         font-weight: 500;
         color: var(--text-primary);
-        margin-bottom: 6px;
+        margin-bottom: 9px;
       }
 
       .integration-head i {
@@ -2720,9 +2720,12 @@
       }
 
       .integration-connect-row {
-        display: flex;
-        gap: 8px;
-        margin-bottom: 6px;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        gap: 10px;
+        margin-top: 12px;
+        margin-bottom: 8px;
+        align-items: stretch;
       }
 
       .integration-connect-col {
@@ -2730,21 +2733,57 @@
         align-items: stretch;
       }
 
-      .integration-connect-row input {
-        flex: 1;
+      .integration-connect-row > input,
+      .integration-connect-row > select,
+      .integration-connect-row .team-select-wrap {
+        grid-column: 1;
         min-width: 0;
-        padding: 8px 10px;
-        background: transparent;
-        border: 0.5px solid var(--border-input);
-        border-radius: 9px;
+        width: 100%;
+      }
+
+      .integration-connect-row > input,
+      .integration-connect-row > select {
+        box-sizing: border-box;
+        min-height: 40px;
+        padding: 9px 12px;
+        background: var(--surface-2);
+        border: 1px solid var(--border-input);
+        border-radius: 10px;
         font-size: 13px;
         font-family: inherit;
         color: var(--text-primary);
         outline: none;
       }
 
+      .integration-connect-row > input::placeholder {
+        color: var(--text-tertiary);
+      }
+
+      .integration-connect-row .integration-config-grid {
+        grid-column: 1;
+      }
+
+      .integration-connect-row > .digest-btn {
+        grid-column: 1;
+        justify-self: end;
+        min-width: 94px;
+        min-height: 38px;
+        padding: 9px 16px;
+        border-radius: 10px;
+        background: var(--accent-soft);
+      }
+
+      .integration-connect-row > .digest-btn:hover {
+        background: rgba(165, 201, 233, 0.22);
+      }
+
+      .integration-connect-row input {
+        min-width: 0;
+      }
+
       .integration-connect-row input:focus {
         border-color: var(--accent);
+        box-shadow: 0 0 0 3px rgba(165, 201, 233, 0.12);
       }
 
       .integration-actions {
@@ -4201,14 +4240,39 @@
       .integration-config-grid {
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 8px;
+        gap: 10px;
         width: 100%;
       }
 
       .integration-config-grid input,
       .integration-config-grid select {
+        box-sizing: border-box;
+        min-height: 40px;
         min-width: 0;
         width: 100%;
+        padding: 9px 12px;
+        background: var(--surface-2);
+        border: 1px solid var(--border-input);
+        border-radius: 10px;
+        color: var(--text-primary);
+        font-size: 13px;
+        outline: none;
+      }
+
+      .integration-config-grid input::placeholder {
+        color: var(--text-tertiary);
+      }
+
+      .integration-config-grid input:focus,
+      .integration-config-grid select:focus {
+        border-color: var(--accent);
+        box-shadow: 0 0 0 3px rgba(165, 201, 233, 0.12);
+      }
+
+      @media (max-width: 360px) {
+        .integration-config-grid {
+          grid-template-columns: 1fr;
+        }
       }
 
       .app-toast {
