@@ -1,1 +1,5 @@
 AUTH_TOKEN=your_memorable_token_here
+# Server-side Composio project key. Provider OAuth tokens stay in Composio.
+COMPOSIO_API_KEY=your_composio_project_key_here
+# Optional when the local Worker is exposed through a public HTTPS tunnel.
+# COMPOSIO_CALLBACK_URL=https://your-tunnel.example/integrations/oauth/callback

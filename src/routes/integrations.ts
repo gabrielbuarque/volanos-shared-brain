@@ -15,6 +15,36 @@ import { listRoster } from "../lib/team-admin";
 import { forgetEntry } from "../capture/lifecycle";
 import { getReadableEntry, assertCanMutateEntry } from "../lib/entry-access";
 import { makeMirrorStore, mirrorWriteContext } from "../integrations/mirror";
+import {
+  composioConfigured,
+  composioToolkitForProvider,
+  completeComposioAuth,
+  createComposioAuthLink,
+  getComposioConnectedAccount,
+  isComposioOAuthProvider,
+  revokeComposioConnectedAccount,
+} from "../integrations/composio";
+
+const OAUTH_STATE_PREFIX = "integration-oauth-state:";
+const OAUTH_STATE_TTL_SECONDS = 10 * 60;
+
+interface OAuthState {
+  provider: string;
+  userId: string;
+  workspace: "personal" | "company";
+  config: Record<string, unknown>;
+  createdAt: number;
+}
+
+function oauthStateKey(state: string): string { return `${OAUTH_STATE_PREFIX}${state}`; }
+
+function oauthRedirect(url: URL, provider: string | null, status: "success" | "error", message?: string): Response {
+  const target = new URL("/", url.origin);
+  if (provider) target.searchParams.set("integration", provider);
+  target.searchParams.set("oauth", status);
+  if (message) target.searchParams.set("message", message.slice(0, 240));
+  return Response.redirect(target.toString(), 302);
+}
 
 export async function handleIntegrationsRoutes(
   request: Request,
@@ -56,9 +86,117 @@ export async function handleIntegrationsRoutes(
       integrations: integrations.map(({ connectedByUserId, ...rest }) => ({
         ...rest,
         connectedBy: connectedByUserId ? nameOf.get(connectedByUserId) ?? null : null,
+        oauthProvider: isComposioOAuthProvider(rest.provider),
+        oauthConfigured: isComposioOAuthProvider(rest.provider) && composioConfigured(env),
       })),
       admin: auth.role === "admin",
     });
+  }
+
+  // POST /integrations/:provider/oauth/start — create a short-lived Composio
+  // Connect Link. The state is kept server-side so the callback does not trust
+  // user-controlled query parameters for the workspace or clearance policy.
+  const oauthStart = url.pathname.match(/^\/integrations\/([a-z0-9-]+)\/oauth\/start$/);
+  if (oauthStart && request.method === "POST") {
+    const auth = await requireAdmin(request, env);
+    if (auth instanceof Response) return auth;
+    const provider = getProvider(oauthStart[1]);
+    if (!provider || !isComposioOAuthProvider(provider.id)) {
+      return json({ ok: false, error: `OAuth is not available for ${oauthStart[1]}` }, 404);
+    }
+    if (!composioConfigured(env)) {
+      return json({ ok: false, error: "OAuth is not configured. Set the COMPOSIO_API_KEY Worker secret first." }, 503);
+    }
+    let body: { workspace?: string; config?: Record<string, unknown> } = {};
+    try { body = await request.json(); } catch { /* optional body */ }
+    const state = crypto.randomUUID();
+    const stateRecord: OAuthState = {
+      provider: provider.id,
+      userId: auth.userId,
+      workspace: body.workspace === "company" ? "company" : "personal",
+      config: body.config ?? {},
+      createdAt: Date.now(),
+    };
+    await env.OAUTH_KV.put(oauthStateKey(state), JSON.stringify(stateRecord), { expirationTtl: OAUTH_STATE_TTL_SECONDS });
+    const callbackUrl = new URL(env.COMPOSIO_CALLBACK_URL?.trim() || "/integrations/oauth/callback", url.origin);
+    callbackUrl.searchParams.set("state", state);
+    try {
+      const link = await createComposioAuthLink(env, {
+        provider: provider.id,
+        userId: auth.userId,
+        callbackUrl: callbackUrl.toString(),
+        alias: `${provider.id}-${state.slice(0, 8)}`,
+      });
+      return json({ ok: true, redirectUrl: link.redirectUrl });
+    } catch (e) {
+      await env.OAUTH_KV.delete(oauthStateKey(state));
+      return json({ ok: false, error: e instanceof Error ? e.message : String(e) }, 502);
+    }
+  }
+
+  // GET /integrations/oauth/callback — finish the browser redirect. In the
+  // normal flow Composio returns connected_account_id. When callback identity
+  // verification is enabled, it returns a single-use session_uri instead and
+  // we redeem it with the user id bound to the server-side state.
+  if (url.pathname === "/integrations/oauth/callback" && request.method === "GET") {
+    const state = url.searchParams.get("state");
+    if (!state) return oauthRedirect(url, null, "error", "OAuth state is missing");
+    const rawState = await env.OAUTH_KV.get(oauthStateKey(state));
+    await env.OAUTH_KV.delete(oauthStateKey(state));
+    if (!rawState) return oauthRedirect(url, null, "error", "OAuth session expired");
+    let stateRecord: OAuthState;
+    try { stateRecord = JSON.parse(rawState) as OAuthState; } catch { return oauthRedirect(url, null, "error", "OAuth state is invalid"); }
+    const provider = getProvider(stateRecord.provider);
+    const toolkit = composioToolkitForProvider(stateRecord.provider);
+    if (!provider || !toolkit || !composioConfigured(env)) return oauthRedirect(url, stateRecord.provider, "error", "OAuth is not configured");
+    if (url.searchParams.get("status") === "failed") return oauthRedirect(url, provider.id, "error", "The provider denied access");
+
+    try {
+      let accountId = url.searchParams.get("connected_account_id") || url.searchParams.get("connectedAccountId");
+      const sessionUri = url.searchParams.get("session_uri");
+      if (sessionUri) {
+        const completed = await completeComposioAuth(env, sessionUri, stateRecord.userId);
+        if (completed.toolkit !== toolkit) throw new Error("OAuth toolkit mismatch");
+        accountId = completed.connectedAccountId;
+      }
+      if (!accountId) throw new Error("OAuth provider returned no connected account");
+      const account = await getComposioConnectedAccount(env, accountId);
+      const accountUserId = account?.user_id ?? account?.userId;
+      const accountToolkit = account?.toolkit?.slug ?? account?.toolkit_slug;
+      if (accountUserId && accountUserId !== stateRecord.userId) throw new Error("OAuth account owner mismatch");
+      if (accountToolkit && accountToolkit !== toolkit) throw new Error("OAuth toolkit mismatch");
+
+      const existing = await loadIntegration(env, provider.id);
+      const now = Date.now();
+      const record: IntegrationRecord = {
+        provider: provider.id,
+        authKind: "oauth2",
+        credentials: { token: "", connectedAccountId: accountId },
+        config: {
+          ...(existing?.config ?? {}),
+          ...stateRecord.config,
+          mirrorWorkspace: stateRecord.workspace,
+          connectedByUserId: stateRecord.userId,
+          composioToolkit: toolkit,
+        },
+        status: "connected",
+        workspaceName: `${provider.name} OAuth`,
+        lastSyncedAt: existing?.lastSyncedAt ?? null,
+        lastSyncError: null,
+        itemMap: existing?.itemMap ?? {},
+        createdAt: existing?.createdAt ?? now,
+        updatedAt: now,
+      };
+      await saveIntegration(env, record);
+      adminAuditEvent(env, ctx, {
+        actorId: stateRecord.userId,
+        event: "integration_connected",
+        payload: { provider: provider.id, mirrorWorkspace: stateRecord.workspace, authKind: "oauth2", toolkit },
+      });
+      return oauthRedirect(url, provider.id, "success");
+    } catch (e) {
+      return oauthRedirect(url, provider.id, "error", e instanceof Error ? e.message : String(e));
+    }
   }
 
   // POST /integrations/:provider/(connect|sync|disconnect)
@@ -184,6 +322,13 @@ export async function handleIntegrationsRoutes(
         } catch (e) {
           console.error("Mirror purge failed (non-fatal):", e);
         }
+      }
+    }
+    if (record.credentials.connectedAccountId && composioConfigured(env)) {
+      try {
+        await revokeComposioConnectedAccount(env, record.credentials.connectedAccountId);
+      } catch (e) {
+        return json({ ok: false, error: e instanceof Error ? e.message : String(e) }, 502);
       }
     }
     await deleteIntegration(env, provider.id);

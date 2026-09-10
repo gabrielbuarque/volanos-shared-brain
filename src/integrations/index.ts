@@ -18,10 +18,12 @@ import { driveProvider } from "./drive";
 export const calendarGoogle = makeCalendarProvider({
   id: "calendar-google",
   name: "Google Calendar",
-  connectLabel: "Paste your Google Calendar secret iCal URL",
-  connectPlaceholder: "https://calendar.google.com/calendar/ical/…/basic.ics",
+  authKind: "oauth2",
+  composioToolkit: "googlecalendar",
+  connectLabel: "Connect your Google Calendar",
+  connectPlaceholder: "OAuth connection",
   connectHint:
-    'In Google Calendar (web): Settings → your calendar → <b>Integrate calendar</b> → copy the <b>"Secret address in iCal format"</b>. Keep it private — anyone with it can read the calendar.',
+    "Authorize read-only access to your Google Calendar. The OAuth token is held by Composio and never returned to the dashboard.",
 });
 
 export const calendarOutlook = makeCalendarProvider({
@@ -46,10 +48,12 @@ export const emailGmail = makeEmailProvider({
   id: "email-gmail",
   name: "Gmail",
   host: "imap.gmail.com",
+  authKind: "oauth2",
+  composioToolkit: "gmail",
   connectLabel: "Connect your Gmail inbox",
-  connectPlaceholder: "16-character app password",
+  connectPlaceholder: "OAuth connection",
   connectHint:
-    "In your Google Account → Security → 2-Step Verification → <b>App passwords</b>, create one for Mail, then enter your Gmail address and that password. (Requires 2-Step Verification; IMAP must be enabled in Gmail settings.)",
+    "Authorize read-only access to your Gmail inbox. The OAuth token is held by Composio and never returned to the dashboard.",
 });
 
 export const emailIcloud = makeEmailProvider({
@@ -115,5 +119,12 @@ export {
 export type { EmailService, EmailHeaderInfo, EmailCreds } from "./email";
 export { githubProvider, githubValidateToken } from "./github";
 export { driveProvider, driveValidateToken } from "./drive";
+export {
+  COMPOSIO_TOOLKITS,
+  composioConfigured,
+  composioToolkitForProvider,
+  hasComposioAccount,
+  isComposioOAuthProvider,
+} from "./composio";
 export { ImapClient, parseHeaders, imapDate } from "./imap";
 export type { FetchedMessage } from "./imap";

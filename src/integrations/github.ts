@@ -1,6 +1,7 @@
 import type { IntegrationEnv, IntegrationProvider, ItemMapEntry, MirrorEntryOptions, MirrorStore, SyncOutcome } from "./framework";
 import { loadIntegration, saveIntegration } from "./framework";
 import { normalizeClearance } from "../lib/permissions";
+import { composioProxy, hasComposioAccount } from "./composio";
 
 const API = "https://api.github.com";
 const BATCH = 8;
@@ -15,6 +16,14 @@ async function githubFetch(token: string, path: string): Promise<any> {
     throw new Error(detail);
   }
   return response.json();
+}
+
+async function githubFetchForRecord(env: IntegrationEnv, record: NonNullable<Awaited<ReturnType<typeof loadIntegration>>>, path: string): Promise<any> {
+  if (hasComposioAccount(record)) return composioProxy(env, record.credentials.connectedAccountId, path, [
+    { name: "Accept", value: "application/vnd.github+json", in: "header" },
+    { name: "X-GitHub-Api-Version", value: "2022-11-28", in: "header" },
+  ]);
+  return githubFetch(record.credentials.token, path);
 }
 
 function repoConfig(config: Record<string, unknown>): { repo: string; ref: string; prefix: string; extensions: Set<string> } | null {
@@ -41,8 +50,8 @@ function decodeBase64(value: string): string {
   return new TextDecoder().decode(bytes);
 }
 
-async function listTree(token: string, cfg: { repo: string; ref: string; prefix: string; extensions: Set<string> }): Promise<{ items: any[]; complete: boolean }> {
-  const tree = await githubFetch(token, `/repos/${cfg.repo}/git/trees/${encodeURIComponent(cfg.ref)}?recursive=1`);
+async function listTree(fetcher: (path: string) => Promise<any>, cfg: { repo: string; ref: string; prefix: string; extensions: Set<string> }): Promise<{ items: any[]; complete: boolean }> {
+  const tree = await fetcher(`/repos/${cfg.repo}/git/trees/${encodeURIComponent(cfg.ref)}?recursive=1`);
   const items = (tree.tree ?? []).filter((item: any) => {
     if (item?.type !== "blob" || typeof item.path !== "string") return false;
     if (cfg.prefix && !(item.path === cfg.prefix || item.path.startsWith(`${cfg.prefix}/`))) return false;
@@ -59,7 +68,8 @@ async function syncGithub(env: IntegrationEnv, store: MirrorStore): Promise<Sync
   const cfg = repoConfig(record.config);
   if (!cfg) return { ok: false, error: "GitHub requires config.repo in owner/repository format" };
   let listing: { items: any[]; complete: boolean };
-  try { listing = await listTree(record.credentials.token, cfg); } catch (e) {
+  const fetcher = (path: string) => githubFetchForRecord(env, record, path);
+  try { listing = await listTree(fetcher, cfg); } catch (e) {
     record.status = "error"; record.lastSyncError = e instanceof Error ? e.message : String(e); record.updatedAt = Date.now(); await saveIntegration(env, record);
     return { ok: false, error: record.lastSyncError };
   }
@@ -69,7 +79,7 @@ async function syncGithub(env: IntegrationEnv, store: MirrorStore): Promise<Sync
   let created = 0, updated = 0, failed = 0;
   for (const item of batch) {
     try {
-      const blob = await githubFetch(record.credentials.token, `/repos/${cfg.repo}/git/blobs/${encodeURIComponent(item.sha)}`);
+      const blob = await fetcher(`/repos/${cfg.repo}/git/blobs/${encodeURIComponent(item.sha)}`);
       const content = `# ${item.path}\nhttps://github.com/${cfg.repo}/blob/${encodeURIComponent(cfg.ref)}/${item.path}\n\n${decodeBase64(String(blob.content ?? ""))}`;
       const existing = record.itemMap[item.path];
       const itemOptions = options(record.config, item.path);
@@ -96,10 +106,10 @@ export const githubProvider: IntegrationProvider = {
   id: "github",
   name: "GitHub",
   category: "knowledge",
-  authKind: "token",
-  connectLabel: "GitHub fine-grained token",
-  connectPlaceholder: "github_pat_…",
-  connectHint: "Use a fine-grained token with read-only Contents access to the selected repository. The token is stored only in encrypted KV and never returned.",
+  authKind: "oauth2",
+  connectLabel: "Connect your GitHub account",
+  connectPlaceholder: "OAuth connection",
+  connectHint: "Authorize read-only repository access. The OAuth token is held by Composio and never returned to the dashboard.",
   validateToken: githubValidateToken,
   sync: syncGithub,
 };

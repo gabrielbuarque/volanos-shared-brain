@@ -27,6 +27,8 @@
 
 export interface IntegrationEnv {
   OAUTH_KV: KVNamespace;
+  /** Server-side Composio project key. Raw provider tokens never live here. */
+  COMPOSIO_API_KEY?: string;
 }
 
 // ─── Provider interface ───────────────────────────────────────────────────────
@@ -67,7 +69,10 @@ export interface ItemMapEntry {
 export interface IntegrationRecord {
   provider: string;
   authKind: "token" | "oauth2";
-  credentials: { token: string };
+  // Legacy token connections keep their opaque token for backwards
+  // compatibility. OAuth connections leave token empty and store only the
+  // Composio account reference; Composio owns the actual provider secret.
+  credentials: { token: string; connectedAccountId?: string };
   config: Record<string, unknown>; // escape hatch for future per-provider options
   status: "connected" | "error";
   workspaceName: string | null;
@@ -118,12 +123,13 @@ export async function deleteIntegration(env: IntegrationEnv, provider: string): 
 // is write-only from the dashboard's perspective. Presentational hints pass
 // through only when set, so providers that omit them (Notion) are unchanged.
 export function integrationStatus(
-  provider: Pick<IntegrationProvider, "id" | "name" | "connectLabel" | "connectPlaceholder" | "connectHint" | "category">,
+  provider: Pick<IntegrationProvider, "id" | "name" | "connectLabel" | "connectPlaceholder" | "connectHint" | "category" | "authKind">,
   record: IntegrationRecord | null,
 ) {
   return {
     provider: provider.id,
     name: provider.name,
+    authKind: provider.authKind ?? "token",
     connected: record !== null,
     status: record?.status ?? null,
     workspaceName: record?.workspaceName ?? null,

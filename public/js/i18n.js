@@ -373,10 +373,10 @@ const I18N_EN = {
     nounMemory: { one: 'memory', other: 'memories' },
     connect: {
       'calendar-google': {
-        label: 'Paste your Google Calendar secret iCal URL',
-        placeholder: 'https://calendar.google.com/calendar/ical/…/basic.ics',
+        label: 'Connect your Google Calendar',
+        placeholder: 'OAuth connection',
         hint:
-          'In Google Calendar (web): Settings → your calendar → <b>Integrate calendar</b> → copy the <b>"Secret address in iCal format"</b>. Keep it private — anyone with it can read the calendar.',
+          'Authorize read-only access to your Google Calendar. The OAuth token is held by Composio and never returned to the dashboard.',
       },
       'calendar-outlook': {
         label: 'Paste your Outlook published ICS URL',
@@ -392,9 +392,9 @@ const I18N_EN = {
       },
       'email-gmail': {
         label: 'Connect your Gmail inbox',
-        placeholder: '16-character app password',
+        placeholder: 'OAuth connection',
         hint:
-          'In your Google Account → Security → 2-Step Verification → <b>App passwords</b>, create one for Mail, then enter your Gmail address and that password. (Requires 2-Step Verification; IMAP must be enabled in Gmail settings.)',
+          'Authorize read-only access to your Gmail inbox. The OAuth token is held by Composio and never returned to the dashboard.',
       },
       'email-icloud': {
         label: 'Connect your iCloud inbox',
@@ -1055,10 +1055,10 @@ const I18N_IT = {
     nounMemory: { one: 'ricordo', other: 'ricordi' },
     connect: {
       'calendar-google': {
-        label: 'Incolla l’URL iCal segreto di Google Calendar',
-        placeholder: 'https://calendar.google.com/calendar/ical/…/basic.ics',
+        label: 'Collega il tuo Google Calendar',
+        placeholder: 'Connessione OAuth',
         hint:
-          'In Google Calendar (web): Impostazioni → il tuo calendario → <b>Integra calendario</b> → copia l’<b>«Indirizzo segreto in formato iCal»</b>. Tienilo privato — chiunque lo abbia può leggere il calendario.',
+          'Autorizza l’accesso in sola lettura al tuo Google Calendar. Il token OAuth è custodito da Composio e non viene restituito al pannello.',
       },
       'calendar-outlook': {
         label: 'Incolla l’URL ICS pubblicato di Outlook',
@@ -1074,9 +1074,9 @@ const I18N_IT = {
       },
       'email-gmail': {
         label: 'Collega la posta Gmail',
-        placeholder: 'password per app di 16 caratteri',
+        placeholder: 'Connessione OAuth',
         hint:
-          'Nel tuo Account Google → Sicurezza → Verifica in due passaggi → <b>Password per le app</b>, crea una per Mail, poi inserisci l’indirizzo Gmail e quella password. (Richiede la verifica in due passaggi; IMAP deve essere attivo in Gmail.)',
+          'Autorizza l’accesso in sola lettura alla tua posta Gmail. Il token OAuth è custodito da Composio e non viene restituito al pannello.',
       },
       'email-icloud': {
         label: 'Collega la posta iCloud',

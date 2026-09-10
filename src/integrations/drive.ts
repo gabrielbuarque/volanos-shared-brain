@@ -1,6 +1,7 @@
 import type { IntegrationEnv, IntegrationProvider, MirrorEntryOptions, MirrorStore, SyncOutcome } from "./framework";
 import { loadIntegration, saveIntegration } from "./framework";
 import { normalizeClearance } from "../lib/permissions";
+import { composioProxy, hasComposioAccount } from "./composio";
 
 const API = "https://www.googleapis.com/drive/v3";
 const BATCH = 8;
@@ -17,6 +18,11 @@ async function driveFetch(token: string, path: string, init?: RequestInit): Prom
   return type.includes("json") ? response.json() : response.text();
 }
 
+async function driveFetchForRecord(env: IntegrationEnv, record: NonNullable<Awaited<ReturnType<typeof loadIntegration>>>, path: string): Promise<any> {
+  if (hasComposioAccount(record)) return composioProxy(env, record.credentials.connectedAccountId, `/drive/v3${path}`);
+  return driveFetch(record.credentials.token, path);
+}
+
 function options(config: Record<string, unknown>, path: string): MirrorEntryOptions {
   return { clearanceLevel: normalizeClearance(config.defaultClearance) ?? undefined, directoryId: typeof config.directoryId === "string" ? config.directoryId : null, sourcePath: path };
 }
@@ -28,7 +34,8 @@ async function syncDrive(env: IntegrationEnv, store: MirrorStore): Promise<SyncO
   const folderId = typeof record.config.folderId === "string" && record.config.folderId.trim() ? record.config.folderId.trim() : "root";
   const q = encodeURIComponent(`'${folderId}' in parents and trashed = false`);
   let data: any;
-  try { data = await driveFetch(record.credentials.token, `/files?q=${q}&pageSize=100&fields=nextPageToken,files(id,name,mimeType,modifiedTime,md5Checksum,webViewLink,size)`); } catch (e) {
+  const fetcher = (path: string) => driveFetchForRecord(env, record, path);
+  try { data = await fetcher(`/files?q=${q}&pageSize=100&fields=nextPageToken,files(id,name,mimeType,modifiedTime,md5Checksum,webViewLink,size)`); } catch (e) {
     record.status = "error"; record.lastSyncError = e instanceof Error ? e.message : String(e); record.updatedAt = Date.now(); await saveIntegration(env, record); return { ok: false, error: record.lastSyncError };
   }
   const files = (data.files ?? []).filter((file: any) => file?.id && (MIME_TEXT.has(file.mimeType) || file.mimeType === "application/vnd.google-apps.document"));
@@ -40,7 +47,7 @@ async function syncDrive(env: IntegrationEnv, store: MirrorStore): Promise<SyncO
     try {
       const contentType = file.mimeType === "application/vnd.google-apps.document" ? "text/plain" : "";
       const suffix = contentType ? `/export?mimeType=${encodeURIComponent(contentType)}` : `?alt=media`;
-      const body = await driveFetch(record.credentials.token, `/files/${encodeURIComponent(file.id)}${suffix}`);
+      const body = await fetcher(`/files/${encodeURIComponent(file.id)}${suffix}`);
       const path = String(file.name ?? file.id);
       const content = `# ${path}\n${file.webViewLink ?? ""}\n\n${String(body)}`;
       const version = `${file.modifiedTime ?? ""}:${file.md5Checksum ?? ""}`;
@@ -67,9 +74,9 @@ export const driveProvider: IntegrationProvider = {
   name: "Google Drive",
   category: "knowledge",
   authKind: "oauth2",
-  connectLabel: "Google Drive OAuth access token",
-  connectPlaceholder: "ya29.…",
-  connectHint: "Use a short-lived OAuth token with Drive read-only scope. Configure folderId, defaultClearance and optionally directoryId in the connection config.",
+  connectLabel: "Connect your Google Drive",
+  connectPlaceholder: "OAuth connection",
+  connectHint: "Authorize read-only access to the selected folder. The OAuth token is held by Composio and never returned to the dashboard.",
   validateToken: driveValidateToken,
   sync: syncDrive,
 };

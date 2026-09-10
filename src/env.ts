@@ -3,6 +3,10 @@
 // and per-deploy vars can override it.
 export interface Env extends Omit<Cloudflare.Env, "VECTORIZE_GRACE_MS"> {
   VECTORIZE_GRACE_MS?: string;
+  /** Project credential for Composio's server-to-server API. Never sent to the browser. */
+  COMPOSIO_API_KEY?: string;
+  /** Optional public callback URL; defaults to the current request origin locally. */
+  COMPOSIO_CALLBACK_URL?: string;
 }
 
 // Worker version, echoed by GET /health. The desktop app compares this against

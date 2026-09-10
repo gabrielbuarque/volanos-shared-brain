@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { driveProvider, driveValidateToken } from "../../src/integrations/drive";
 import { githubProvider, githubValidateToken } from "../../src/integrations/github";
+import { makeEmailProvider } from "../../src/integrations/email";
 import { saveIntegration } from "../../src/integrations/framework";
 import { makeMemoryKV } from "../helpers/make-env";
 
@@ -28,7 +29,7 @@ describe("GitHub and Google Drive providers", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(githubValidateToken("github-secret")).resolves.toBe("GitHub @gabrielbuarque");
-    expect(githubProvider.authKind).toBe("token");
+    expect(githubProvider.authKind).toBe("oauth2");
   });
 
   it("mirrors a GitHub blob with Volanos security metadata", async () => {
@@ -94,5 +95,42 @@ describe("GitHub and Google Drive providers", () => {
       content: expect.stringContaining("conteudo do Drive"),
       options: { clearanceLevel: 6, directoryId: "dir-drive", sourcePath: "brief.md" },
     });
+  });
+
+  it("mirrors a Gmail OAuth message through Composio without storing a mail password", async () => {
+    const raw = Buffer.from([
+      "Message-ID: <gmail-1@example.com>",
+      "From: Andre <andre@volanos.ai>",
+      "Subject: Shared Brain", "Date: Tue, 10 Sep 2026 10:00:00 +0000", "Content-Type: text/plain; charset=utf-8", "",
+      "Decisions from the meeting.",
+    ].join("\r\n")).toString("base64url");
+    const fetchMock = vi.fn(async (_input: string, init?: RequestInit) => {
+      const request = JSON.parse(String(init?.body));
+      if (request.endpoint.endsWith("/messages")) return new Response(JSON.stringify({ data: { messages: [{ id: "gmail-1" }] } }));
+      if (request.endpoint.endsWith("/gmail-1") && request.parameters.some((p: any) => p.name === "format" && p.value === "metadata")) {
+        return new Response(JSON.stringify({ data: { internalDate: "1789034400000", payload: { headers: [
+          { name: "Message-ID", value: "<gmail-1@example.com>" }, { name: "From", value: "Andre <andre@volanos.ai>" },
+          { name: "Subject", value: "Shared Brain" }, { name: "Date", value: "Tue, 10 Sep 2026 10:00:00 +0000" },
+        ] } } }));
+      }
+      return new Response(JSON.stringify({ data: { raw } }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const kv = makeMemoryKV();
+    await saveIntegration({ OAUTH_KV: kv }, {
+      provider: "email-gmail", authKind: "oauth2", credentials: { token: "", connectedAccountId: "ca-gmail" },
+      config: {}, status: "connected", workspaceName: "Gmail OAuth", lastSyncedAt: null, lastSyncError: null,
+      itemMap: {}, createdAt: Date.now(), updatedAt: Date.now(),
+    });
+    const created: string[] = [];
+    const store = {
+      createEntry: vi.fn(async (content: string) => { created.push(content); return "entry-gmail-1"; }),
+      updateEntry: vi.fn().mockResolvedValue(false), deleteEntry: vi.fn().mockResolvedValue(undefined),
+    };
+    const provider = makeEmailProvider({ id: "email-gmail", name: "Gmail", host: "imap.gmail.com", connectLabel: "", connectPlaceholder: "", connectHint: "", authKind: "oauth2" });
+    const result = await provider.sync({ OAUTH_KV: kv, COMPOSIO_API_KEY: "composio-key" }, store);
+    expect(result).toMatchObject({ ok: true, created: 1, failed: 0 });
+    expect(created[0]).toContain("# Shared Brain");
+    expect(JSON.stringify(await kv.get("integrations:email-gmail"))).not.toContain("appPassword");
   });
 });

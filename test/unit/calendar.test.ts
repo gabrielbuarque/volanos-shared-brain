@@ -889,4 +889,44 @@ describe("makeCalendarProvider sync (happy path)", () => {
     expect(saved.status).toBe("connected");
     expect(saved.lastSyncedAt).not.toBeNull();
   });
+
+  it("mirrors Google Calendar OAuth events through Composio without a raw token", async () => {
+    const now = Date.now();
+    const fetchMock = vi.fn(async (_input: string, init?: RequestInit) => {
+      const request = JSON.parse(String(init?.body));
+      expect(request.connected_account_id).toBe("ca-calendar");
+      expect(request.endpoint).toContain("/calendar/v3/calendars/primary/events");
+      return new Response(JSON.stringify({ data: { items: [{
+        id: "google-event-1",
+        iCalUID: "google-event-1@google",
+        summary: "OAuth planning",
+        start: { dateTime: new Date(now + 5 * DAY_MS).toISOString() },
+        end: { dateTime: new Date(now + 5 * DAY_MS + 3600_000).toISOString() },
+        updated: "2026-09-10T12:00:00Z",
+        status: "confirmed",
+        description: "Agenda and decisions.",
+      }] } }), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const kv = makeMemoryKV();
+    await kv.put("integrations:calendar-google", JSON.stringify({
+      provider: "calendar-google", authKind: "oauth2", credentials: { token: "", connectedAccountId: "ca-calendar" },
+      config: {}, status: "connected", workspaceName: "Google Calendar OAuth", lastSyncedAt: null,
+      lastSyncError: null, itemMap: {}, createdAt: 0, updatedAt: 0,
+    } satisfies IntegrationRecord));
+    const created: string[] = [];
+    const store = {
+      createEntry: vi.fn(async (content: string) => { created.push(content); return "entry-google-1"; }),
+      updateEntry: vi.fn().mockResolvedValue(true),
+      deleteEntry: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const provider = makeCalendarProvider({ id: "calendar-google", name: "Google Calendar", connectLabel: "", connectPlaceholder: "", connectHint: "", authKind: "oauth2" });
+    const outcome = await provider.sync({ OAUTH_KV: kv, COMPOSIO_API_KEY: "composio-key" }, store);
+
+    expect(outcome).toMatchObject({ ok: true, created: 1, failed: 0, total: 1 });
+    expect(created[0]).toContain("# OAuth planning");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
 });

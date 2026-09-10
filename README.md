@@ -258,6 +258,25 @@ npm test         # run the test suite
 
 See [Local Development](wiki/Local-Development) for mixed local/remote Wrangler configuration and sharing a local brain through a tunnel.
 
+### OAuth das integrações
+
+No dashboard, GitHub, Google Drive, Google Calendar e Gmail usam um botão OAuth
+que abre a autorização do próprio provedor. O usuário não cola tokens no
+Second Brain; o Worker guarda apenas a referência da conexão e Composio mantém
+e atualiza as credenciais do provedor.
+
+Para habilitar essas conexões no desenvolvimento local, copie
+`.dev.vars.example` para `.dev.vars` e defina a chave de projeto do Composio:
+
+```text
+COMPOSIO_API_KEY=your_composio_project_key
+```
+
+Essa chave é somente do servidor e não deve ser commitada. Se o projeto
+Composio usar verificação de identidade no callback, o endereço precisa ser
+HTTPS público; em desenvolvimento, configure `COMPOSIO_CALLBACK_URL` apontando
+para o callback do Worker através de um túnel HTTPS.
+
 **Verify the deployment** (replace `YOUR-WORKER-URL` and `YOUR-TOKEN`):
 
 ```bash

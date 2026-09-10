@@ -452,7 +452,6 @@ describe("dashboard i18n", () => {
     "integrations.nounEmail.one",
     // FORMAT ONLY — URLs the user pastes, and punctuation around a placeholder.
     "integrations.urlPlaceholder",
-    "integrations.connect.calendar-google.placeholder",
     "integrations.connect.calendar-outlook.placeholder",
     "integrations.connect.calendar-icloud.placeholder",
     "brief.shapeSuffix",

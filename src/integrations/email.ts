@@ -11,6 +11,7 @@ import PostalMime from "postal-mime";
 import { ImapClient } from "./imap";
 import type { IntegrationEnv, IntegrationProvider, IntegrationRecord, MirrorStore, SyncOutcome } from "./framework";
 import { loadIntegration, saveIntegration } from "./framework";
+import { composioProxy, hasComposioAccount } from "./composio";
 
 const DAY_MS = 86_400_000;
 export const FIRST_SYNC_LOOKBACK_MS = 7 * DAY_MS;  // how far back the very first sync reaches
@@ -36,6 +37,8 @@ export interface EmailService {
   connectLabel: string;
   connectPlaceholder: string;
   connectHint: string;
+  authKind?: "token" | "oauth2";
+  composioToolkit?: string;
 }
 
 export interface EmailCreds { email: string; appPassword: string; }
@@ -206,6 +209,95 @@ async function extractEmail(raw: Uint8Array): Promise<ParsedEmail> {
   return { text, subject: parsed.subject || "", from, date: parsed.date || "" };
 }
 
+function decodeBase64Url(value: string): Uint8Array {
+  const normalized = value.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(value.length / 4) * 4, "=");
+  const binary = atob(normalized);
+  return Uint8Array.from(binary, (char) => char.charCodeAt(0));
+}
+
+function gmailHeaders(message: any): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const header of Array.isArray(message?.payload?.headers) ? message.payload.headers : []) {
+    if (typeof header?.name === "string" && typeof header?.value === "string") out[header.name.toLowerCase()] = header.value;
+  }
+  return out;
+}
+
+async function runGmailComposioSync(env: IntegrationEnv, store: MirrorStore, record: IntegrationRecord, svc: EmailService): Promise<SyncOutcome> {
+  const now = Date.now();
+  const cfg = getConfig(record);
+  const ingestedIds = new Set<string>(Array.isArray(cfg.ingestedIds) ? cfg.ingestedIds : []);
+  const since = typeof cfg.checkpoint === "number" ? cfg.checkpoint : now - FIRST_SYNC_LOOKBACK_MS;
+  const after = Math.floor(since / 1000);
+  try {
+    const list = await composioProxy(env, record.credentials.connectedAccountId!, `/gmail/v1/users/me/messages`, [
+      { name: "labelIds", value: "INBOX", in: "query" },
+      { name: "maxResults", value: "50", in: "query" },
+      { name: "q", value: `after:${after}`, in: "query" },
+    ]);
+    const messages = Array.isArray(list?.messages) ? list.messages.filter((m: any) => typeof m?.id === "string") : [];
+    const candidates: Array<{ id: string; header: EmailHeaderInfo }> = [];
+    for (let i = 0; i < messages.length; i++) {
+      const id = String(messages[i].id);
+      if (ingestedIds.has(id)) continue;
+      const metadata = await composioProxy(env, record.credentials.connectedAccountId!, `/gmail/v1/users/me/messages/${encodeURIComponent(id)}`, [
+        { name: "format", value: "metadata", in: "query" },
+        ...HEADER_FIELDS.map((name) => ({ name: "metadataHeaders", value: name, in: "query" as const })),
+      ]);
+      const headers = gmailHeaders(metadata);
+      candidates.push({
+        id,
+        header: {
+          uid: Number(metadata?.internalDate ?? i),
+          messageId: id,
+          from: headers.from ?? "",
+          subject: headers.subject ?? "",
+          date: headers.date ?? "",
+          bulk: looksBulk(headers),
+        },
+      });
+    }
+    const plan = computeEmailPlan(candidates.map((c) => c.header), new Set());
+    const idsByMessage = new Map(candidates.map((c) => [c.header.messageId, c.id]));
+    const batch = plan.slice(0, EMAIL_FETCH_BATCH);
+    let created = 0, failed = 0;
+    for (const header of batch) {
+      const id = idsByMessage.get(header.messageId);
+      if (!id) continue;
+      try {
+        const full = await composioProxy(env, record.credentials.connectedAccountId!, `/gmail/v1/users/me/messages/${encodeURIComponent(id)}`, [
+          { name: "format", value: "raw", in: "query" },
+        ]);
+        if (typeof full?.raw !== "string") throw new Error("Gmail returned no raw message.");
+        const parsed = await extractEmail(decodeBase64Url(full.raw));
+        const content = buildEmailContent(parsed.subject || header.subject, parsed.from || header.from, parsed.date || header.date, cleanEmailBody(parsed.text));
+        await store.createEntry(content, ["email", svc.id], svc.id);
+        ingestedIds.add(id);
+        created++;
+      } catch (e) {
+        console.error(`Gmail OAuth ingest failed for ${id} (non-fatal):`, e);
+        failed++;
+      }
+    }
+    const remaining = Math.max(0, plan.length - batch.length);
+    if (remaining === 0) cfg.checkpoint = now - OVERLAP_MS;
+    cfg.ingestedIds = [...ingestedIds].slice(-MAX_INGESTED_IDS);
+    record.config = cfg;
+    record.status = "connected";
+    record.lastSyncedAt = now;
+    record.lastSyncError = null;
+    record.updatedAt = now;
+    await saveIntegration(env, record);
+    return { ok: true, created, updated: 0, deleted: 0, failed, remaining, total: candidates.length };
+  } catch (e) {
+    record.status = "error";
+    record.lastSyncError = errMsg(e);
+    record.updatedAt = now;
+    await saveIntegration(env, record);
+    return { ok: false, error: record.lastSyncError };
+  }
+}
+
 // ─── Connection validation + sync ───────────────────────────────────────────
 
 export async function validateEmailToken(token: string, host: string): Promise<string> {
@@ -228,6 +320,8 @@ function getConfig(record: IntegrationRecord): { checkpoint?: number; ingestedId
 async function runEmailSync(env: IntegrationEnv, store: MirrorStore, svc: EmailService): Promise<SyncOutcome> {
   const record = await loadIntegration(env, svc.id);
   if (!record) return { ok: false, error: `${svc.name} is not connected` };
+
+  if (hasComposioAccount(record)) return runGmailComposioSync(env, store, record, svc);
 
   let creds: EmailCreds;
   try {
@@ -323,6 +417,7 @@ export function makeEmailProvider(svc: EmailService): IntegrationProvider {
     connectLabel: svc.connectLabel,
     connectPlaceholder: svc.connectPlaceholder,
     connectHint: svc.connectHint,
+    authKind: svc.authKind ?? "token",
     validateToken: (token: string) => validateEmailToken(token, svc.host),
     sync: (env, store) => runEmailSync(env, store, svc),
   };

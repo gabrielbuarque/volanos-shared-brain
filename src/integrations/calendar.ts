@@ -20,6 +20,7 @@ import type {
   SyncOutcome,
 } from "./framework";
 import { loadIntegration, saveIntegration } from "./framework";
+import { composioProxy, hasComposioAccount } from "./composio";
 
 // ── Tunable constants ──────────────────────────────────────────────────────
 const DAY_MS = 86_400_000;
@@ -478,6 +479,8 @@ export interface CalendarService {
   connectLabel: string;
   connectPlaceholder: string;
   connectHint: string;
+  authKind?: "token" | "oauth2";
+  composioToolkit?: string;
 }
 
 const ICS_FETCH_HEADERS = {
@@ -567,6 +570,53 @@ export async function validateCalendarUrl(rawUrl: string): Promise<string> {
   return (root.getFirstPropertyValue("x-wr-calname") as string) || new URL(url).host;
 }
 
+function googleDate(value: any): { ms: number; allDay: boolean } | null {
+  if (typeof value?.date === "string") {
+    const ms = Date.parse(`${value.date}T00:00:00Z`);
+    return Number.isFinite(ms) ? { ms, allDay: true } : null;
+  }
+  if (typeof value?.dateTime === "string") {
+    const ms = Date.parse(value.dateTime);
+    return Number.isFinite(ms) ? { ms, allDay: false } : null;
+  }
+  return null;
+}
+
+async function fetchGoogleCalendarOccurrences(
+  env: IntegrationEnv,
+  accountId: string,
+  now: number,
+): Promise<Occurrence[]> {
+  const params = [
+    { name: "timeMin", value: new Date(now - PAST_LOOKBACK_MS).toISOString(), in: "query" as const },
+    { name: "timeMax", value: new Date(now + FUTURE_WINDOW_MS).toISOString(), in: "query" as const },
+    { name: "singleEvents", value: "true", in: "query" as const },
+    { name: "orderBy", value: "startTime", in: "query" as const },
+    { name: "maxResults", value: "2500", in: "query" as const },
+  ];
+  const data = await composioProxy(env, accountId, "/calendar/v3/calendars/primary/events", params);
+  const out: Occurrence[] = [];
+  for (const event of Array.isArray(data?.items) ? data.items : []) {
+    if (!event?.id || String(event.status ?? "confirmed").toLowerCase() === "cancelled") continue;
+    const start = googleDate(event.start);
+    const end = googleDate(event.end);
+    if (!start || !end || end.ms < now - PAST_LOOKBACK_MS || start.ms > now + FUTURE_WINDOW_MS) continue;
+    out.push({
+      key: String(event.id),
+      uid: String(event.iCalUID ?? event.id),
+      isRecurring: Boolean(event.recurringEventId || event.recurrence),
+      summary: cleanText(event.summary) || "(no title)",
+      start: start.ms,
+      end: end.ms,
+      allDay: start.allDay,
+      location: cleanText(event.location),
+      description: stripConferencingBlock(cleanText(event.description)).slice(0, MAX_DESCRIPTION_CHARS),
+      version: `${event.updated ?? ""}:${event.status ?? "confirmed"}`,
+    });
+  }
+  return out;
+}
+
 function getMeta(record: IntegrationRecord): Record<string, CalendarMetaEntry> {
   const m = (record.config as any)?.calendarMeta;
   return m && typeof m === "object" ? (m as Record<string, CalendarMetaEntry>) : {};
@@ -580,8 +630,9 @@ async function runCalendarSync(env: IntegrationEnv, store: MirrorStore, provider
 
   let occurrences: Occurrence[];
   try {
-    const body = await fetchIcs(normalizeUrl(record.credentials.token));
-    occurrences = parseAndExpand(body, now - PAST_LOOKBACK_MS, now + FUTURE_WINDOW_MS);
+    occurrences = hasComposioAccount(record)
+      ? await fetchGoogleCalendarOccurrences(env, record.credentials.connectedAccountId, now)
+      : parseAndExpand(await fetchIcs(normalizeUrl(record.credentials.token)), now - PAST_LOOKBACK_MS, now + FUTURE_WINDOW_MS);
   } catch (e) {
     record.status = "error";
     record.lastSyncError = e instanceof Error ? e.message : String(e);
@@ -675,6 +726,7 @@ export function makeCalendarProvider(svc: CalendarService): IntegrationProvider 
     connectLabel: svc.connectLabel,
     connectPlaceholder: svc.connectPlaceholder,
     connectHint: svc.connectHint,
+    authKind: svc.authKind ?? "token",
     validateToken: validateCalendarUrl,
     sync: (env, store) => runCalendarSync(env, store, svc.id),
   };

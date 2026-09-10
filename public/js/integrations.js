@@ -37,6 +37,21 @@ function integrationConfigFields(provider) {
   return ''
 }
 
+function integrationConnectionConfig(provider) {
+  const config = {}
+  if (provider === 'github') {
+    config.repo = (document.getElementById('cfg-github-repo')?.value || '').trim()
+    config.ref = (document.getElementById('cfg-github-ref')?.value || '').trim() || 'main'
+    config.path = (document.getElementById('cfg-github-path')?.value || '').trim()
+    config.defaultClearance = Number(document.getElementById('cfg-github-clearance')?.value ?? 8)
+  } else if (provider === 'google-drive') {
+    config.folderId = (document.getElementById('cfg-drive-folder')?.value || '').trim() || 'root'
+    config.directoryId = (document.getElementById('cfg-drive-directory')?.value || '').trim()
+    config.defaultClearance = Number(document.getElementById('cfg-drive-clearance')?.value ?? 8)
+  }
+  return config
+}
+
 /** Whether this caller may change connections; see loadIntegrations. */
 let integrationsAdmin = true
 
@@ -168,12 +183,13 @@ function renderIntegrationCard(info) {
       p === 'notion'
         ? t('integrations.notionHint')
         : integrationConnectI18n(p, 'hint', info.connectHint, '')
-    const label = escHtml(
-      integrationConnectI18n(p, 'label', info.connectLabel, 'integrations.pasteSecret'),
-    )
+    const label = escHtml(integrationConnectI18n(p, 'label', info.connectLabel, 'integrations.pasteSecret'))
+    const isOAuth = info.oauthProvider === true
     const isEmail = p.startsWith('email')
     let inputs
-    if (isEmail) {
+    if (isOAuth) {
+      inputs = ''
+    } else if (isEmail) {
       // Email needs two fields; connectIntegration packs them into the token.
       inputs =
         `<input type="email" id="email-${p}" placeholder="${escAttr(t('integrations.emailPlaceholder'))}" aria-label="${escAttr(t('integrations.emailAria'))}" autocomplete="off" />` +
@@ -199,12 +215,13 @@ function renderIntegrationCard(info) {
         </select><i class="ti ti-chevron-down"></i></span>`
       : ''
     const connectRow = integrationsAdmin
-      ? `<div class="integration-connect-row${isEmail ? ' integration-connect-col' : ''}">
+      ? `<div class="integration-connect-row${isEmail && !isOAuth ? ' integration-connect-col' : ''}">
           ${inputs}
           ${configFields}
           ${mirrorLayer}
-          <button class="digest-btn" onclick="connectIntegration('${p}', this)">${escHtml(t('auth.connect'))}</button>
+          <button class="digest-btn" onclick="${isOAuth ? `connectOAuthIntegration('${p}', this)` : `connectIntegration('${p}', this)`}">${escHtml(isOAuth ? `${t('auth.connect')} ${info.name}` : t('auth.connect'))}</button>
         </div>
+        ${isOAuth ? `<p class="digest-note integration-oauth-note">${info.oauthConfigured ? 'A janela segura do provedor será aberta para autorizar o acesso.' : 'OAuth ainda não está configurado neste Worker. Defina COMPOSIO_API_KEY para habilitar a conexão.'}</p>` : ''}
         <div class="integration-error" id="err-${p}"></div>`
       : `<p class="digest-note">${escHtml(t('integrations.adminsOnly'))}</p>`
     return `
@@ -278,17 +295,7 @@ async function connectIntegration(provider, btn) {
   }
   const wsEl = document.getElementById(`ws-${provider}`)
   const workspace = wsEl && TEAM_MODE ? wsEl.value : 'personal'
-  const config = {}
-  if (provider === 'github') {
-    config.repo = (document.getElementById('cfg-github-repo')?.value || '').trim()
-    config.ref = (document.getElementById('cfg-github-ref')?.value || '').trim() || 'main'
-    config.path = (document.getElementById('cfg-github-path')?.value || '').trim()
-    config.defaultClearance = Number(document.getElementById('cfg-github-clearance')?.value ?? 8)
-  } else if (provider === 'google-drive') {
-    config.folderId = (document.getElementById('cfg-drive-folder')?.value || '').trim() || 'root'
-    config.directoryId = (document.getElementById('cfg-drive-directory')?.value || '').trim()
-    config.defaultClearance = Number(document.getElementById('cfg-drive-clearance')?.value ?? 8)
-  }
+  const config = integrationConnectionConfig(provider)
   btn.disabled = true
   btn.textContent = t('auth.connectingEllipsis')
   errEl.textContent = ''
@@ -308,6 +315,31 @@ async function connectIntegration(provider, btn) {
     errEl.textContent = e.message || t('auth.couldNotConnect')
     btn.disabled = false
     btn.textContent = t('auth.connect')
+  }
+}
+
+async function connectOAuthIntegration(provider, btn) {
+  const errEl = document.getElementById(`err-${provider}`)
+  const providerName = integrationsInfo.find((info) => info.provider === provider)?.name || provider
+  const wsEl = document.getElementById(`ws-${provider}`)
+  const workspace = wsEl && TEAM_MODE ? wsEl.value : 'personal'
+  const config = integrationConnectionConfig(provider)
+  btn.disabled = true
+  btn.textContent = t('auth.connectingEllipsis')
+  errEl.textContent = ''
+  try {
+    const res = await fetch(`${WORKER_URL}/integrations/${provider}/oauth/start`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${AUTH_TOKEN}` },
+      body: JSON.stringify({ workspace, ...(Object.keys(config).length ? { config } : {}) }),
+    })
+    const data = await res.json()
+    if (!res.ok || !data.ok) throw new Error(data.error || t('integrations.couldNotConnectShort'))
+    window.location.href = data.redirectUrl
+  } catch (e) {
+    errEl.textContent = e.message || t('auth.couldNotConnect')
+    btn.disabled = false
+    btn.textContent = `${t('auth.connect')} ${providerName}`
   }
 }
 

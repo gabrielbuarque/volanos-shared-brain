@@ -141,6 +141,7 @@ describe("integrationStatus", () => {
     expect(integrationStatus(notionProvider, null)).toEqual({
       provider: "notion",
       name: "Notion",
+      authKind: "token",
       connected: false,
       status: null,
       workspaceName: null,
