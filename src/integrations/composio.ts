@@ -5,13 +5,25 @@ import type { IntegrationEnv, IntegrationRecord } from "./framework";
  * The Shared Brain still owns mirroring, provenance and P0–P12 filtering.
  */
 const API = "https://backend.composio.dev/api/v3.1";
-const AUTH_CONFIG_PREFIX = "composio:auth-config:";
+const AUTH_CONFIG_PREFIX = "composio:auth-config:v2:";
 
 export const COMPOSIO_TOOLKITS: Record<string, string> = {
   github: "github",
   "google-drive": "googledrive",
   "calendar-google": "googlecalendar",
   "email-gmail": "gmail",
+};
+
+// These are the narrowest scopes needed by the mirror requests. GitHub's
+// classic OAuth API has no private-repository read-only scope: `repo` is the
+// provider's coarse scope for private repository contents. The application
+// still enforces GET-only proxy calls; a strict GitHub read-only grant would
+// require a custom GitHub App instead of the managed OAuth connection.
+export const COMPOSIO_SCOPES: Record<string, string> = {
+  github: "repo,read:user",
+  googledrive: "https://www.googleapis.com/auth/drive.readonly",
+  googlecalendar: "https://www.googleapis.com/auth/calendar.readonly",
+  gmail: "https://www.googleapis.com/auth/gmail.readonly",
 };
 
 export function composioToolkitForProvider(provider: string): string | null {
@@ -43,6 +55,12 @@ function errorMessage(body: any, status: number): string {
   return typeof detail === "string" && detail.trim() ? detail : `Composio API error (${status})`;
 }
 
+function normalizeScopes(value: unknown): string {
+  return typeof value === "string"
+    ? value.split(",").map((scope) => scope.trim()).filter(Boolean).sort().join(",")
+    : "";
+}
+
 async function composioApi(env: IntegrationEnv, path: string, init: RequestInit = {}): Promise<any> {
   const key = requireApiKey(env);
   const response = await fetch(`${API}${path}`, {
@@ -67,14 +85,24 @@ async function ensureAuthConfig(env: IntegrationEnv, toolkit: string): Promise<s
   if (cached) return cached;
 
   const listed = await composioApi(env, `/auth_configs?toolkit_slug=${encodeURIComponent(toolkit)}&is_composio_managed=true&limit=50`);
+  const expectedScopes = COMPOSIO_SCOPES[toolkit];
   const existing = (listed?.items ?? []).find((item: any) =>
-    item?.is_composio_managed === true && item?.auth_scheme === "OAUTH2" && item?.status !== "DISABLED" && typeof item?.id === "string",
+    item?.is_composio_managed === true &&
+    item?.auth_scheme === "OAUTH2" &&
+    item?.status !== "DISABLED" &&
+    typeof item?.id === "string" &&
+    normalizeScopes(item?.credentials?.scopes) === normalizeScopes(expectedScopes),
   );
   const id = existing?.id ?? (await composioApi(env, "/auth_configs", {
     method: "POST",
     body: JSON.stringify({
       toolkit: { slug: toolkit },
-      auth_config: { type: "use_composio_managed_auth", credentials: {}, restrict_to_following_tools: [] },
+      auth_config: {
+        type: "use_composio_managed_auth",
+        name: `Volanos Shared Brain · ${toolkit} read-only`,
+        credentials: { scopes: expectedScopes },
+        restrict_to_following_tools: [],
+      },
     }),
   }))?.auth_config?.id;
   if (typeof id !== "string" || !id) throw new Error(`Composio did not return an OAuth config for ${toolkit}.`);

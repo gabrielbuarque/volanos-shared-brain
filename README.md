@@ -277,6 +277,11 @@ Composio usar verificação de identidade no callback, o endereço precisa ser
 HTTPS público; em desenvolvimento, configure `COMPOSIO_CALLBACK_URL` apontando
 para o callback do Worker através de um túnel HTTPS.
 
+As conexões Google solicitam escopos de leitura. No GitHub, o sincronizador
+também só faz requisições de leitura, mas o OAuth clássico usa o escopo `repo`
+para acessar repositórios privados e esse escopo é mais amplo; uma garantia de
+leitura estrita exige um GitHub App com permissão granular.
+
 **Verify the deployment** (replace `YOUR-WORKER-URL` and `YOUR-TOKEN`):
 
 ```bash

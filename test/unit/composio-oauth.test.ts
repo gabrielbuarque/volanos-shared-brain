@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   COMPOSIO_TOOLKITS,
+  COMPOSIO_SCOPES,
   composioConfigured,
   composioProxy,
   createComposioAuthLink,
@@ -22,6 +23,15 @@ describe("Composio OAuth boundary", () => {
       "google-drive": "googledrive",
       "calendar-google": "googlecalendar",
       "email-gmail": "gmail",
+    });
+  });
+
+  it("defines provider scopes for the mirror boundary", () => {
+    expect(COMPOSIO_SCOPES).toEqual({
+      github: "repo,read:user",
+      googledrive: "https://www.googleapis.com/auth/drive.readonly",
+      googlecalendar: "https://www.googleapis.com/auth/calendar.readonly",
+      gmail: "https://www.googleapis.com/auth/gmail.readonly",
     });
   });
 
@@ -47,6 +57,8 @@ describe("Composio OAuth boundary", () => {
     const linkBody = JSON.parse(String(calls[2].init?.body));
     expect(linkBody).toMatchObject({ auth_config_id: "ac_github", user_id: "user-1", alias: "github-test" });
     expect(linkBody).not.toHaveProperty("token");
+    const authConfigBody = JSON.parse(String(calls[1].init?.body));
+    expect(authConfigBody.auth_config.credentials.scopes).toBe(COMPOSIO_SCOPES.github);
   });
 
   it("completes deferred identity verification and never exposes a provider token", async () => {

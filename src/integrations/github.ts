@@ -109,7 +109,8 @@ export const githubProvider: IntegrationProvider = {
   authKind: "oauth2",
   connectLabel: "Connect your GitHub account",
   connectPlaceholder: "OAuth connection",
-  connectHint: "Authorize read-only repository access. The OAuth token is held by Composio and never returned to the dashboard.",
+  connectHint:
+    "Authorize access to the selected repository. The synchronizer only performs read requests; GitHub's OAuth repo scope is coarse. The OAuth token is held by Composio and never returned to the dashboard.",
   validateToken: githubValidateToken,
   sync: syncGithub,
 };
