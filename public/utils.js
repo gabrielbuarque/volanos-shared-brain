@@ -889,9 +889,24 @@ function layerChipHtml(entry, teamMode) {
   return `<span class="tag-chip tag-chip--shared" title="${escAttr(t('memories.sharedTitle'))}"><i class="ti ti-users-group"></i> ${escHtml(who)}</span>`
 }
 
+/**
+ * The access-level badge ("P2") for a memory or a source. P0 is the most
+ * restricted. Empty when the row carries no level (an older Worker, or a row that
+ * is not a memory), so the badge never claims a level nobody told it. The hover
+ * text is the level's own definition when the pilot's level texts are loaded
+ * (volLevelText, js/volanos.js), otherwise a plain sentence.
+ */
+function levelChipHtml(level) {
+  if (level === null || level === undefined || level === '') return ''
+  const n = Number(level)
+  if (!Number.isInteger(n) || n < 0 || n > 12) return ''
+  const defined = typeof volLevelText === 'function' ? volLevelText(n) : ''
+  return `<span class="lvl-pill lvl-pill--card" data-level="${n}" title="${escAttr(defined || t('memories.levelTitle', { n }))}">P${n}</span>`
+}
+
 if (typeof module !== 'undefined' && module.exports) {
   // downloadTextFile is deliberately absent: it needs a live URL and Blob, and
   // it is exercised through its two callers (exportMemories in js/settings.js
   // and exportActivityCsv in js/activity.js) rather than in isolation.
-  module.exports = { escHtml, escAttr, toDateStr, parseRecallResult, normalizeEntry, vectorizeHealthBanner, vectorizeBannerHtml, syncVectorizeBanner, workspaceFilterChip, syncWorkspaceFilterChip, isSystemTag, humanTags, assignGraphClusters, packGraphNodes, packGraphCircles, captureDefaultKey, csvCell, csvDocument, layerChipHtml };
+  module.exports = { escHtml, escAttr, toDateStr, parseRecallResult, normalizeEntry, vectorizeHealthBanner, vectorizeBannerHtml, syncVectorizeBanner, workspaceFilterChip, syncWorkspaceFilterChip, isSystemTag, humanTags, assignGraphClusters, packGraphNodes, packGraphCircles, captureDefaultKey, csvCell, csvDocument, layerChipHtml, levelChipHtml };
 }

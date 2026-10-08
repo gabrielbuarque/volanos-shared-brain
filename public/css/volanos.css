@@ -152,6 +152,8 @@ html[data-theme='dark'] {
 .lvl-pill[data-level="11"] { background: #cbd8e7; color: #0f1f49; }
 .lvl-pill[data-level="12"] { background: #dce9f5; color: #0f1f49; }
 html[data-theme=dark] .lvl-pill { border-color: #a5c9e9; }
+/* On memory and source cards: a compact badge that sits with the other chips. */
+.lvl-pill--card { flex-shrink: 0; min-width: 0; padding: 1px 7px; font-size: 10.5px; line-height: 1.5; }
 
 .vol-section { margin: 0 0 28px; display: flex; flex-direction: column; gap: 10px; }
 .vol-form, .vol-row, .vol-card footer, .vol-link { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }

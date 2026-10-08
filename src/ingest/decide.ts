@@ -24,7 +24,7 @@ export interface Decision {
 export interface SubmitterContext {
   /** The submitter's own floor: they publish directly at this level or more open. */
   floor: number;
-  /** Skips the queue for chunks that are only flagged for review, never for ones above their level. */
+  /** No longer skips anything: chunks flagged for review always wait for the owner. Kept so callers keep compiling. */
   directPublish?: boolean;
 }
 
@@ -48,7 +48,10 @@ export function decide(c: ClassifyResult, who: SubmitterContext): Decision {
   if (base.level < who.floor) {
     return { level: base.level, outcome: "quarantine", review: true, reason: base.reason === "ok" ? "above-submitter" : base.reason };
   }
-  if (base.review && !who.directPublish) {
+  // Low confidence, ambiguous levels or no answer from Jev: the owner (P0) decides,
+  // for everyone, including accounts with direct publishing. Their pick is stored
+  // as feedback and shown to Jev the next time (src/ingest/feedback.ts).
+  if (base.review) {
     return { level: base.level, outcome: "quarantine", review: true, reason: base.reason };
   }
   return { level: base.level, outcome: "publish", review: base.review, reason: base.reason };

@@ -340,7 +340,7 @@ export async function recallEntries(
   type CandidateSignalRow = { id: string; content?: string; source?: string; created_at?: number; last_updated?: number; recall_count: number; importance_score: number; contradiction_wins: number; contradiction_losses: number; tags: string; access_count?: number; last_accessed_at?: number | null };
   const rcRows: CandidateSignalRow[] = [];
   const candidateSignalProjection = hops > 0
-    ? `id, content, source, created_at, COALESCE(updated_at, created_at) AS last_updated, recall_count, importance_score, contradiction_wins, contradiction_losses, tags, workspace_id, actor_id, access_count, last_accessed_at`
+    ? `id, content, source, created_at, COALESCE(updated_at, created_at) AS last_updated, recall_count, importance_score, contradiction_wins, contradiction_losses, tags, workspace_id, actor_id, clearance_level, access_count, last_accessed_at`
     : "id, recall_count, importance_score, contradiction_wins, contradiction_losses, tags, workspace_id, actor_id, access_count, last_accessed_at";
   // Scoped too: this is the leak-catcher for unscoped Vectorize hits — until
   // namespaces land (P3) the dense arm can surface a stranger's id, and the
@@ -477,7 +477,7 @@ export async function recallEntries(
     const placeholders = batch.map(() => "?").join(", ");
     const { results } = await env.DB.prepare(
       // scope-checked: the caller's clause IS applied — d1Filters is built from scope.clause above and appended here; the lexer cannot see into a JS-assembled fragment
-      `SELECT id, content, tags, source, created_at, updated_at, workspace_id, actor_id FROM entries WHERE id IN (${placeholders})${d1Filters}`
+      `SELECT id, content, tags, source, created_at, updated_at, workspace_id, actor_id, clearance_level FROM entries WHERE id IN (${placeholders})${d1Filters}`
     ).bind(...batch, ...filterBindings).all() as { results: Record<string, any>[] };
     d1Rows.push(...results);
   }
@@ -506,6 +506,7 @@ export async function recallEntries(
       isUpdate: !!meta?.isUpdate,
       hop: 0,
       workspace: layerOf(identity, row.workspace_id),
+      clearance: clearanceOf(row),
       staleAsOf: hasStaleAsOf(JSON.parse(row.tags ?? "[]")),
     }];
   }).sort((a, b) => b.score - a.score);
@@ -581,6 +582,7 @@ export async function recallEntries(
         isUpdate: false,
         hop: e.hop,
         workspace: layerOf(identity, row.workspace_id),
+        clearance: clearanceOf(row),
         staleAsOf: hasStaleAsOf(JSON.parse(row.tags ?? "[]")),
         viaProvenance: e.viaProvenance,
         viaType: e.viaType,
@@ -653,6 +655,7 @@ export async function recallEntries(
         isUpdate: false,
         hop: 0,
         workspace: layerOf(identity, (row as Record<string, unknown>).workspace_id),
+        clearance: clearanceOf(row as Record<string, unknown>),
         staleAsOf: hasStaleAsOf(rowTags),
       };
       matchById.set(match.id, match);
@@ -739,4 +742,11 @@ export async function recallEntries(
   }
 
   return { matches, insight, semanticUnavailable, queryUsed: lexicalQuery, queryTokens: tokens, compoundStale, rerank: rerankInfo };
+}
+
+/** Clearance level of a hydrated row (P0 most restricted), or undefined when the row does not carry one. */
+function clearanceOf(row: Record<string, unknown>): number | undefined {
+  const raw = row.clearance_level;
+  const n = Number(raw);
+  return raw !== undefined && raw !== null && Number.isInteger(n) ? n : undefined;
 }

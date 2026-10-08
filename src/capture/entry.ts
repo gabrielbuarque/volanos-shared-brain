@@ -48,7 +48,7 @@ export function buildEntryFilterQuery(params: {
   if (params.before !== undefined) { conds.push(`created_at <= ?`); bindings.push(params.before); }
 
   // scope-exempt: builder only: callers splice the caller's scope in before ORDER BY — routes/recall.ts always, but mcp/server.ts only `if (identity)`, so an identity-less MCP caller gets this SQL unscoped
-  let sql = `SELECT id, content, tags, source, created_at, vector_ids, workspace_id, actor_id FROM entries`;
+  let sql = `SELECT id, content, tags, source, created_at, vector_ids, workspace_id, actor_id, clearance_level FROM entries`;
   if (conds.length) sql += ` WHERE ` + conds.join(` AND `);
   sql += ` ORDER BY created_at DESC LIMIT ?`;
   bindings.push(params.n);

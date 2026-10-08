@@ -50,12 +50,19 @@ describe("GET /entry", () => {
       contradiction_losses: 0,
       indexed: true,
       workspace: "personal",
+      clearance_level: null, // this fixture row carries no level
       actor_name: "Owner",
       // Whether this caller may edit or forget it. True here and on every row of
       // a solo brain: the author lock only ever engages on the company layer.
       can_edit: true,
       timeline: [],
     });
+  });
+
+  it("reports the access level of the memory (P0 most restricted)", async () => {
+    db.entries.push({ id: "lv", content: "Reajuste de uma designer", tags: "[]", source: "api", created_at: 1, vector_ids: "[]", clearance_level: 2 });
+    const data = await (await worker.fetch(req("GET", "/entry?id=lv"), env, ctx)).json() as any;
+    expect(data.entry.clearance_level).toBe(2);
   });
 
   it("reports a memory recall cannot see as unindexed", async () => {

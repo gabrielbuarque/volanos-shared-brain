@@ -1,0 +1,262 @@
+[
+  {
+    "doc": "transcricao-reuniao-semanal.md",
+    "item": "31 milhões",
+    "esperado": 0,
+    "jev": 0,
+    "conf": 0.98,
+    "decisao": "publish",
+    "motivo": "ok",
+    "situacao": "exato"
+  },
+  {
+    "doc": "transcricao-reuniao-semanal.md",
+    "item": "Marcelo",
+    "esperado": 0,
+    "jev": 0,
+    "conf": 0.9,
+    "decisao": "publish",
+    "motivo": "ok",
+    "situacao": "exato"
+  },
+  {
+    "doc": "transcricao-reuniao-semanal.md",
+    "item": "descontinuar a linha",
+    "esperado": 1,
+    "jev": 1,
+    "conf": 0.87,
+    "decisao": "publish",
+    "motivo": "ok",
+    "situacao": "exato"
+  },
+  {
+    "doc": "transcricao-reuniao-semanal.md",
+    "item": "8.100",
+    "esperado": 2,
+    "jev": 2,
+    "conf": 1,
+    "decisao": "publish",
+    "motivo": "ok",
+    "situacao": "exato"
+  },
+  {
+    "doc": "transcricao-reuniao-semanal.md",
+    "item": "1,87",
+    "esperado": 3,
+    "jev": 3,
+    "conf": 1,
+    "decisao": "publish",
+    "motivo": "ok",
+    "situacao": "exato"
+  },
+  {
+    "doc": "transcricao-reuniao-semanal.md",
+    "item": "grupo espanhol",
+    "esperado": 4,
+    "jev": 4,
+    "conf": 0.96,
+    "decisao": "publish",
+    "motivo": "ok",
+    "situacao": "exato"
+  },
+  {
+    "doc": "transcricao-reuniao-semanal.md",
+    "item": "2,7%",
+    "esperado": 5,
+    "jev": 5,
+    "conf": 1,
+    "decisao": "publish",
+    "motivo": "ok",
+    "situacao": "exato"
+  },
+  {
+    "doc": "transcricao-reuniao-semanal.md",
+    "item": "520 mil",
+    "esperado": 6,
+    "jev": 6,
+    "conf": 0.63,
+    "decisao": "publish",
+    "motivo": "ok",
+    "situacao": "exato"
+  },
+  {
+    "doc": "transcricao-reuniao-semanal.md",
+    "item": "dois dias úteis",
+    "esperado": 7,
+    "jev": 7,
+    "conf": 1,
+    "decisao": "publish",
+    "motivo": "ok",
+    "situacao": "exato"
+  },
+  {
+    "doc": "transcricao-reuniao-semanal.md",
+    "item": "três dias por semana",
+    "esperado": 8,
+    "jev": 8,
+    "conf": 0.95,
+    "decisao": "publish",
+    "motivo": "ok",
+    "situacao": "exato"
+  },
+  {
+    "doc": "transcricao-reuniao-semanal.md",
+    "item": "12 ilustrações",
+    "esperado": 9,
+    "jev": 9,
+    "conf": 0.97,
+    "decisao": "publish",
+    "motivo": "ok",
+    "situacao": "exato"
+  },
+  {
+    "doc": "transcricao-reuniao-semanal.md",
+    "item": "terracota",
+    "esperado": 10,
+    "jev": 10,
+    "conf": 0.95,
+    "decisao": "publish",
+    "motivo": "ok",
+    "situacao": "exato"
+  },
+  {
+    "doc": "transcricao-reuniao-semanal.md",
+    "item": "Trilha",
+    "esperado": 11,
+    "jev": 11,
+    "conf": 0.98,
+    "decisao": "publish",
+    "motivo": "ok",
+    "situacao": "exato"
+  },
+  {
+    "doc": "transcricao-reuniao-semanal.md",
+    "item": "Design que conversa",
+    "esperado": 12,
+    "jev": 12,
+    "conf": 0.89,
+    "decisao": "publish",
+    "motivo": "ok",
+    "situacao": "exato"
+  },
+  {
+    "doc": "notas-pos-call-cliente.md",
+    "item": "2,3 milhões",
+    "esperado": 4,
+    "jev": 4,
+    "conf": 0.7,
+    "decisao": "publish",
+    "motivo": "ok",
+    "situacao": "exato"
+  },
+  {
+    "doc": "notas-pos-call-cliente.md",
+    "item": "embalagem",
+    "esperado": 4,
+    "jev": 4,
+    "conf": 0.47,
+    "decisao": "publish",
+    "motivo": "low-confidence",
+    "situacao": "exato"
+  },
+  {
+    "doc": "notas-pos-call-cliente.md",
+    "item": "1,4 milhão",
+    "esperado": 5,
+    "jev": 5,
+    "conf": 1,
+    "decisao": "publish",
+    "motivo": "ok",
+    "situacao": "exato"
+  },
+  {
+    "doc": "notas-pos-call-cliente.md",
+    "item": "demissão",
+    "esperado": 2,
+    "jev": 2,
+    "conf": 0.87,
+    "decisao": "publish",
+    "motivo": "ok",
+    "situacao": "exato"
+  },
+  {
+    "doc": "notas-pos-call-cliente.md",
+    "item": "84 mil",
+    "esperado": 3,
+    "jev": 3,
+    "conf": 1,
+    "decisao": "publish",
+    "motivo": "ok",
+    "situacao": "exato"
+  },
+  {
+    "doc": "notas-pos-call-cliente.md",
+    "item": "38 mil",
+    "esperado": 6,
+    "jev": 3,
+    "conf": 0.56,
+    "decisao": "publish",
+    "motivo": "low-confidence",
+    "situacao": "mais restrito (seguro)"
+  },
+  {
+    "doc": "notas-pos-call-cliente.md",
+    "item": "duas etapas",
+    "esperado": 7,
+    "jev": 7,
+    "conf": 0.62,
+    "decisao": "publish",
+    "motivo": "ok",
+    "situacao": "exato"
+  },
+  {
+    "doc": "notas-pos-call-cliente.md",
+    "item": "ferramentas aprovadas",
+    "esperado": 8,
+    "jev": 8,
+    "conf": 0.95,
+    "decisao": "publish",
+    "motivo": "ok",
+    "situacao": "exato"
+  },
+  {
+    "doc": "notas-pos-call-cliente.md",
+    "item": "três cortes",
+    "esperado": 9,
+    "jev": 9,
+    "conf": 0.87,
+    "decisao": "publish",
+    "motivo": "ok",
+    "situacao": "exato"
+  },
+  {
+    "doc": "notas-pos-call-cliente.md",
+    "item": "atravessa a serra",
+    "esperado": 10,
+    "jev": 10,
+    "conf": 0.93,
+    "decisao": "publish",
+    "motivo": "ok",
+    "situacao": "exato"
+  },
+  {
+    "doc": "notas-pos-call-cliente.md",
+    "item": "sprints",
+    "esperado": 11,
+    "jev": 11,
+    "conf": 0.76,
+    "decisao": "publish",
+    "motivo": "ok",
+    "situacao": "exato"
+  },
+  {
+    "doc": "notas-pos-call-cliente.md",
+    "item": "Uma serra inteira",
+    "esperado": 12,
+    "jev": 12,
+    "conf": 0.97,
+    "decisao": "publish",
+    "motivo": "ok",
+    "situacao": "exato"
+  }
+]

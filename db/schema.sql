@@ -389,3 +389,20 @@ CREATE TABLE IF NOT EXISTS job_runs (
   summary     TEXT NOT NULL DEFAULT '{}'
 );
 CREATE INDEX IF NOT EXISTS idx_job_runs_recent ON job_runs(started_at DESC);
+
+-- What the owner (P0) decided about chunks Jev was unsure of. Per workspace; the closest
+-- ones are shown to Jev as examples the next time it classifies (src/ingest/feedback.ts).
+CREATE TABLE IF NOT EXISTS classification_feedback (
+  id             TEXT PRIMARY KEY,                 -- fb-<entry id>
+  workspace_id   TEXT NOT NULL,
+  entry_id       TEXT NOT NULL,
+  jev_level      INTEGER,                          -- Jev's own pick
+  jev_confidence REAL,
+  final_level    INTEGER NOT NULL,                 -- what the owner chose
+  corrected      INTEGER NOT NULL DEFAULT 0,       -- 1 when final_level differs from Jev's pick
+  text           TEXT NOT NULL,
+  source_path    TEXT,
+  decided_by     TEXT NOT NULL DEFAULT '',
+  created_at     INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_classification_feedback_workspace ON classification_feedback(workspace_id, created_at DESC);

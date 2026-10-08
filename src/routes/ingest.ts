@@ -69,7 +69,7 @@ export async function handleIngestRoutes(
     if (!files.length) return json({ ok: false, imported: 0, errors: rejected }, 400);
     // scope-exempt: reads the caller's own row for a flag; no content
     const flag = await env.DB.prepare(`SELECT direct_publish AS d FROM users WHERE id = ?`).bind(auth.userId).first<{ d: number }>();
-    const plan = await planIngest(env, files, { userId: auth.userId, floor: identityClearanceFloor(auth), directPublish: flag?.d === 1 });
+    const plan = await planIngest(env, files, { userId: auth.userId, floor: identityClearanceFloor(auth), directPublish: flag?.d === 1, workspaceId });
     if (body.dry_run) {
       return json({
         ok: true, dry_run: true, classified: true, ...summarize(plan), rejected: rejected.length, errors: rejected, workspace_id: workspaceId,

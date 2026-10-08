@@ -187,6 +187,7 @@ export async function handleRecallRoutes(
           updated: m.isUpdate,
           hop: m.hop,
           workspace: m.workspace ?? null,
+          clearance_level: m.clearance ?? null,
           actor_name: m.workspace === "company" ? (m.actorName ?? null) : null,
           via_provenance: m.viaProvenance ?? null,
           via_type: m.viaType ?? null,

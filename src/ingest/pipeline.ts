@@ -18,6 +18,8 @@ export interface Submitter {
   /** Lowest level they publish at without approval (0 for an admin). */
   floor: number;
   directPublish: boolean;
+  /** Workspace the chunks will be written to: scopes the owner's earlier decisions shown to Jev. */
+  workspaceId?: string;
 }
 
 export interface PlannedChunk {
@@ -48,7 +50,7 @@ export async function planIngest(env: Env, files: IngestFile[], who: Submitter):
     return { docId, file, doc: parseMarkdown(file.content, file.path.split("/").at(-1) ?? "Documento") };
   }));
   const flat = parsed.flatMap(p => p.doc.chunks.map(chunk => ({ p, chunk })));
-  const results = await classifyChunks(env, flat.map(f => f.chunk), levels);
+  const results = await classifyChunks(env, flat.map(f => f.chunk), levels, who.workspaceId);
   const chunks: PlannedChunk[] = [];
   for (let i = 0; i < flat.length; i++) {
     const { p, chunk } = flat[i];

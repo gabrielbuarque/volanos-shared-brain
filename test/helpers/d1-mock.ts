@@ -40,14 +40,14 @@ const SCHEMA_PROBE_RESULTS = [
   ...["entries", "edges", "insight_candidates", "workspaces", "users", "memberships", "brain_directories", "brain_directory_grants",
     "entry_events", "admin_events", "maintenance_cursor", "prompt_capsule_revisions",
     "entry_classification", "doc_nodes", "contributions", "member_invites", "member_sessions",
-    "entry_versions", "aging_suggestions", "job_runs"]
+    "entry_versions", "aging_suggestions", "job_runs", "classification_feedback"]
     .map(name => ({ kind: "table", name })),
   ...["idx_entries_created_at", "idx_entries_source", "idx_entries_workspace_created", "idx_entries_capsule",
     "idx_edges_source", "idx_edges_target", "idx_edges_weight", "idx_insight_candidates_queue",
     "idx_workspaces_kind", "idx_users_token_hash", "idx_users_email", "idx_memberships_workspace",
     "idx_entry_events_entry", "idx_entry_events_created", "idx_admin_events_created", "idx_brain_directories_workspace", "idx_brain_directory_grants_user", "idx_entries_clearance",
     "idx_entry_classification_doc", "idx_entry_classification_review", "idx_doc_nodes_workspace", "idx_contributions_queue", "idx_member_invites_token", "idx_member_invites_email", "idx_member_sessions_user",
-    "idx_entry_versions_entry", "idx_aging_suggestions_queue", "idx_job_runs_recent"]
+    "idx_entry_versions_entry", "idx_aging_suggestions_queue", "idx_job_runs_recent", "idx_classification_feedback_workspace"]
     .map(name => ({ kind: "index", name })),
   ...["prompt_capsule_entry_insert", "prompt_capsule_entry_update",
     "prompt_capsule_entry_delete", "prompt_capsule_workspace_delete"]

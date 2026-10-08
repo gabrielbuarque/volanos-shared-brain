@@ -142,6 +142,88 @@ describe("approval queue", () => {
   });
 });
 
+describe("low confidence waits for the owner, and the owner's pick teaches Jev", () => {
+  const jevAnswer = (rows: { level: number; confidence: number; second?: [number, number] }[]) => ({
+    model: "jev-test",
+    answers: Object.fromEntries(rows.map((r, i) => {
+      const probabilities: Record<string, number> = { [`P${r.level}`]: r.confidence };
+      if (r.second) probabilities[`P${r.second[0]}`] = r.second[1];
+      return [`c${i}`, { type: "choice", choice: `P${r.level}`, confidence: r.confidence, probabilities }];
+    })),
+  });
+  const bodies: any[] = [];
+  const stubJev = (rows: Parameters<typeof jevAnswer>[0]) => {
+    bodies.length = 0;
+    vi.stubGlobal("fetch", vi.fn(async (_url: unknown, init?: RequestInit) => {
+      bodies.push(JSON.parse(String(init?.body ?? "{}")));
+      return new Response(JSON.stringify(jevAnswer(rows)), { status: 200 });
+    }));
+    env = { ...env, JEV_API_KEY: "jev-key" } as Env;
+  };
+  const TEXT = "O diretor da Rede Aurora contou em confiança que a empresa será vendida.";
+
+  it("queues an unsure chunk even for an account with direct publishing, hidden from non-owners", async () => {
+    await env.DB.prepare(`UPDATE users SET direct_publish = 1 WHERE id = ?`).bind(maira.userId).run();
+    stubJev([{ level: 8, confidence: 0.4, second: [7, 0.35] }]);
+    const res = await jsonOf(await call("POST", "/bulk-ingest", maira.token, { workspace: "company", files: [{ path: "n.md", content: `# N\n\n${TEXT}` }] }));
+    vi.unstubAllGlobals();
+    expect(res).toMatchObject({ published: 0, quarantined: 1, flagged_for_review: 1 });
+    expect(await sqlite.db.prepare(`SELECT COUNT(*) AS n FROM entries WHERE content = ?`).bind(TEXT).first()).toMatchObject({ n: 0 });
+    const row = await sqlite.db.prepare(`SELECT id, reason, suggested_level FROM contributions`).first() as any;
+    expect(row).toMatchObject({ reason: "low-confidence", suggested_level: 7 });
+    // Maira's floor (P7) reads P7 and below, but an unsure chunk is the owner's to decide.
+    expect((await jsonOf(await call("GET", "/contributions", maira.token))).contributions).toEqual([]);
+    expect((await call("POST", "/contributions/resolve", maira.token, { id: row.id, action: "approve" })).status).toBe(404);
+    const owner = await jsonOf(await call("GET", "/contributions", "test-token"));
+    expect(owner.contributions).toHaveLength(1);
+    expect(owner.contributions[0]).toMatchObject({ reason: "low-confidence", top3: [{ level: 8 }, { level: 7 }] });
+  });
+
+  it("still shows the rest of the queue to its level owners", async () => {
+    sqlite.db.prepare(
+      `INSERT INTO contributions (id, workspace_id, submitter_id, doc_id, node_id, ord, source, source_path, content, suggested_level, confidence, top3, reason, status, created_at)
+       VALUES ('contrib-bbb', ?, ?, 'doc3', '0001', 0, 'x', 'n.md', 'Algo de P9', 9, 0.9, '[]', 'above-submitter', 'pending', ?)`,
+    ).bind(company, maira.userId, Date.now()).run();
+    expect((await jsonOf(await call("GET", "/contributions", maira.token))).contributions.map((c: any) => c.id)).toEqual(["contrib-bbb"]);
+  });
+
+  it("records the owner's correction and shows it to Jev on the next ingest of the same workspace", async () => {
+    stubJev([{ level: 8, confidence: 0.4, second: [7, 0.35] }]);
+    await call("POST", "/bulk-ingest", "test-token", { workspace: "company", files: [{ path: "n.md", content: `# N\n\n${TEXT}` }] });
+    const row = await sqlite.db.prepare(`SELECT id FROM contributions`).first() as any;
+    const approved = await jsonOf(await call("POST", "/contributions/resolve", "test-token", { id: row.id, action: "approve", level: 4 }));
+    expect(approved).toMatchObject({ ok: true, level: 4, jev_level: 8, corrected: true });
+    expect(await sqlite.db.prepare(`SELECT workspace_id, jev_level, final_level, corrected, text FROM classification_feedback`).first())
+      .toMatchObject({ workspace_id: company, jev_level: 8, final_level: 4, corrected: 1, text: TEXT });
+
+    stubJev([{ level: 4, confidence: 0.95 }]);
+    const next = await jsonOf(await call("POST", "/bulk-ingest", "test-token", {
+      workspace: "company",
+      files: [{ path: "m.md", content: "# M\n\nO diretor da Rede Aurora falou em confiança sobre a venda da empresa." }],
+    }));
+    vi.unstubAllGlobals();
+    expect(next).toMatchObject({ published: 1, quarantined: 0 });
+    const state = String(bodies[0].state);
+    expect(state).toContain("Exemplos já decididos");
+    expect(state).toContain(`→ P4 (corrigido pelo responsável): "${TEXT}"`);
+    expect(state.indexOf("=== Trechos a classificar ===")).toBeLessThan(state.indexOf("[1] (M)"));
+  });
+
+  it("confirming Jev's pick is kept too, and examples never cross workspaces", async () => {
+    stubJev([{ level: 8, confidence: 0.4, second: [7, 0.35] }]);
+    await call("POST", "/bulk-ingest", "test-token", { workspace: "company", files: [{ path: "n.md", content: `# N\n\n${TEXT}` }] });
+    const row = await sqlite.db.prepare(`SELECT id FROM contributions`).first() as any;
+    const approved = await jsonOf(await call("POST", "/contributions/resolve", "test-token", { id: row.id, action: "approve", level: 8 }));
+    expect(approved.corrected).toBe(false);
+    expect(await sqlite.db.prepare(`SELECT corrected FROM classification_feedback`).first()).toMatchObject({ corrected: 0 });
+
+    stubJev([{ level: 9, confidence: 0.95 }]);
+    await call("POST", "/bulk-ingest", "test-token", { workspace: "personal", files: [{ path: "p.md", content: "# P\n\nO diretor da Rede Aurora falou em confiança." }] });
+    vi.unstubAllGlobals();
+    expect(String(bodies[0].state)).not.toContain("Exemplos já decididos");
+  });
+});
+
 describe("levels editor", () => {
   it("lets any member read the 13 texts but only an admin edit them", async () => {
     const read = await jsonOf(await call("GET", "/levels", maira.token));

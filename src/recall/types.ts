@@ -21,6 +21,8 @@ export interface RecallMatch {
   staleAsOf?: boolean;
   /** Which layer this memory lives in, so clients can show or act on it. */
   workspace?: "personal" | "company" | "system";
+  /** Clearance level of the memory (P0 most restricted). Only ever on rows the caller may read. */
+  clearance?: number;
   /** Resolved author label on company-layer matches (shared memories). */
   actorName?: string;
   // Set only on graph-expanded matches (hop > 0): why / when / whence the edge that surfaced this memory.

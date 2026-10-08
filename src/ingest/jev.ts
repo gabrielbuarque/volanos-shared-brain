@@ -1,5 +1,6 @@
 import type { Env } from "../env";
 import type { Chunk } from "./tree";
+import { formatExamples, loadExamples, type FeedbackExample } from "./feedback";
 import { levelCriteria, parseLevel, rubricInstructions, type LevelText } from "./levels";
 
 /**
@@ -37,8 +38,8 @@ export function batches<T>(items: readonly T[], size = JEV_BATCH_SIZE): T[][] {
   return out;
 }
 
-export function buildRequest(batch: readonly Chunk[], levels: readonly LevelText[], model = "jev-latest") {
-  const state = batch.map((c, i) => `[${i + 1}] (${c.path})\n${c.text}`).join("\n\n---\n\n");
+export function buildRequest(batch: readonly Chunk[], levels: readonly LevelText[], model = "jev-latest", examples: readonly FeedbackExample[] = []) {
+  const state = formatExamples(examples) + batch.map((c, i) => `[${i + 1}] (${c.path})\n${c.text}`).join("\n\n---\n\n");
   const criteria = levelCriteria(levels);
   const questions: Record<string, unknown> = {};
   batch.forEach((_, i) => {
@@ -67,12 +68,12 @@ export function parseAnswer(answer: any, fallbackModel: string): Classification 
   return { level, confidence, top3: ranked.slice(0, 3), model: fallbackModel };
 }
 
-async function classifyBatch(env: Env, batch: readonly Chunk[], levels: readonly LevelText[]): Promise<ClassifyResult[]> {
+async function classifyBatch(env: Env, batch: readonly Chunk[], levels: readonly LevelText[], examples: readonly FeedbackExample[]): Promise<ClassifyResult[]> {
   try {
     const res = await fetch(env.JEV_API_URL || JEV_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${env.JEV_API_KEY}` },
-      body: JSON.stringify(buildRequest(batch, levels)),
+      body: JSON.stringify(buildRequest(batch, levels, "jev-latest", examples)),
     });
     if (!res.ok) throw new Error(`Jev returned ${res.status}`);
     const payload = (await res.json()) as { model?: string; answers?: Record<string, unknown> };
@@ -84,14 +85,17 @@ async function classifyBatch(env: Env, batch: readonly Chunk[], levels: readonly
 }
 
 /** Classify every chunk, 13 per call, a few calls at a time. Result order matches `chunks`. */
-export async function classifyChunks(env: Env, chunks: readonly Chunk[], levels: readonly LevelText[]): Promise<ClassifyResult[]> {
+export async function classifyChunks(env: Env, chunks: readonly Chunk[], levels: readonly LevelText[], workspaceId?: string): Promise<ClassifyResult[]> {
   const groups = batches(chunks);
+  // Decisions the owner already made in this workspace, closest to this batch.
+  const examplesFor = new Map<number, FeedbackExample[]>();
+  await Promise.all(groups.map(async (g, i) => { examplesFor.set(i, await loadExamples(env, workspaceId, g)); }));
   const out: ClassifyResult[][] = new Array(groups.length);
   let next = 0;
   const worker = async () => {
     while (next < groups.length) {
       const i = next++;
-      out[i] = await classifyBatch(env, groups[i], levels);
+      out[i] = await classifyBatch(env, groups[i], levels, examplesFor.get(i) ?? []);
     }
   };
   await Promise.all(Array.from({ length: Math.min(JEV_PARALLEL, groups.length) }, worker));
