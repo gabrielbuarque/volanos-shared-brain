@@ -11,7 +11,7 @@ import { appendToEntry, updateEntryContent } from "../capture/store";
 import { isManagedMirror, mirrorEditError } from "../integrations/mirror";
 import { auditEvent } from "../lib/audit";
 import { VOLATILITY_VALUES, withVolatility, type Volatility } from "../memory/volatility";
-import { resolveWritePermission } from "../lib/permissions";
+import { readerOf, resolveWritePermission } from "../lib/permissions";
 
 /** Validate route-only volatility input; MCP gets equivalent Zod validation. */
 /** Where this caller's writes land and who gets stamped on them. */
@@ -28,6 +28,7 @@ async function writeContextFor(
   return {
     workspaceId: scopeWrite(identity, resolvedTarget, teamRead.teamId),
     actorId: identity.userId,
+    reader: readerOf(identity),
   };
 }
 

@@ -9,8 +9,16 @@ import {
   SMART_MERGE_MAX_TOKENS,
   VECTORIZE_WORKSPACE_FILTER_UNSUPPORTED_KV_KEY,
 } from "../constants";
-import { embed, readStreamText } from "../lib/ai";
+import { embed } from "../lib/ai";
+import { chatText } from "../llm/provider";
 import { queryVectorizeScoped, singleWorkspaceFilter } from "../vectorize/scope";
+import { readerPermissionClause, type Reader } from "../lib/permissions";
+
+/** Floor the Vectorize clearance filter should use, when the caller is not an admin. */
+function floorOf(permission: { reader?: Reader; levelFloor?: number }): number | undefined {
+  if (permission.reader) return permission.reader.admin ? undefined : permission.reader.floor;
+  return permission.levelFloor;
+}
 
 type DuplicateResult =
   | { status: "unique" }
@@ -49,6 +57,11 @@ export async function checkDuplicateAndContradiction(
   // queryVectorizeScoped a fire-and-forget KV write on filter degradation —
   // src/vectorize/scope.ts itself stays env-free.
   ctx?: { waitUntil(promise: Promise<unknown>): void },
+  // Whose eyes the comparison borrows. A writer is only ever compared against
+  // rows they could read themselves: an existing P0 note must neither reach the
+  // merge/contradiction prompt nor be named back ("duplicate of <id>") to a P7
+  // writer. System writers have no reader and compare at the new entry's level.
+  permission: { reader?: Reader; levelFloor?: number } = {},
 ): Promise<{
   duplicate: DuplicateResult;
   contradiction: ContradictionResult;
@@ -75,7 +88,7 @@ export async function checkDuplicateAndContradiction(
           )
         : undefined;
       const { matches: filtered } = await queryVectorizeScoped<VectorizeMatch>(
-        env.VECTORIZE, values, { topK: 5, filter: singleWorkspaceFilter(workspaceId).filter, onDegrade },
+        env.VECTORIZE, values, { topK: 5, filter: singleWorkspaceFilter(workspaceId, floorOf(permission)).filter, onDegrade },
       );
       matches = filtered;
     } else {
@@ -83,6 +96,34 @@ export async function checkDuplicateAndContradiction(
     }
   } catch (e) {
     console.error("Vectorize query failed (capturing without duplicate/contradiction checks):", e);
+  }
+
+  // Permission before any decision. The Vectorize filter above carries the level,
+  // but it cannot express directory ACLs and it silently degrades to unfiltered
+  // when the metadata index is missing. So when the writer's permission is known,
+  // every neighbour is confirmed readable in SQL before it can become a "duplicate
+  // of <id>", a neighbour edge, or a line in the merge prompt.
+  const writerWorkspaceId = workspaceId ?? "";
+  const permissionKnown = permission.reader !== undefined || permission.levelFloor !== undefined;
+  const readerClause = readerPermissionClause(permission.reader ?? { userId: "", admin: false, floor: permission.levelFloor ?? 12 });
+  let readableRows: { id: string; content: string }[] | null = null;
+  if (permissionKnown && matches.length) {
+    try {
+      const ids = [...new Set(matches.map(m => ((m.metadata as any)?.parentId ?? m.id) as string))];
+      // Rows that exist but are not readable here (another workspace, a level above
+      // the writer, an ACL'd directory) are dropped. A hit with no row at all is an
+      // orphaned vector: nothing to leak, and it keeps counting as before.
+      const { results } = await env.DB.prepare(
+        `SELECT id, content, (workspace_id = ?${readerClause.clause ? ` AND ${readerClause.clause}` : ""}) AS readable FROM entries WHERE id IN (${ids.map(() => "?").join(", ")})`
+      ).bind(writerWorkspaceId, ...readerClause.bindings, ...ids).all() as { results: { id: string; content: string; readable: number }[] };
+      readableRows = results.filter(r => Number(r.readable) === 1);
+      const forbidden = new Set(results.filter(r => Number(r.readable) !== 1).map(r => r.id));
+      matches = matches.filter(m => !forbidden.has(((m.metadata as any)?.parentId ?? m.id) as string));
+    } catch (e) {
+      // Fail closed: if readability cannot be established, compare against nothing.
+      console.error("Duplicate-check permission lookup failed (capturing without duplicate/contradiction checks):", e);
+      matches = [];
+    }
   }
 
   const neighborScores = new Map<string, number>();
@@ -125,11 +166,12 @@ export async function checkDuplicateAndContradiction(
       // statement: capture is the hot path and this adds no subrequest. `?? ""`
       // is the pre-tenancy workspace, which is where an entry written without a
       // WriteContext lives, so a solo brain compares exactly the rows it did.
-      const writerWorkspaceId = workspaceId ?? "";
       const placeholders = parentIds.map(() => "?").join(", ");
-      const { results: rows } = await env.DB.prepare(
-        `SELECT id, content FROM entries WHERE id IN (${placeholders}) AND workspace_id = ?`
-      ).bind(...parentIds, writerWorkspaceId).all() as { results: { id: string; content: string }[] };
+      const rows = readableRows
+        ? readableRows.filter(r => parentIds.includes(r.id))
+        : ((await env.DB.prepare(
+            `SELECT id, content FROM entries WHERE id IN (${placeholders}) AND workspace_id = ?`
+          ).bind(...parentIds, writerWorkspaceId).all()) as { results: { id: string; content: string }[] }).results;
 
       if (rows.length) {
         // The ids the model is allowed to name back. `parentIds` is the raw
@@ -162,12 +204,7 @@ Respond with JSON only. No text outside the JSON.
 {"action":"keep_both"} OR {"action":"contradiction","conflicting_id":"<id>","reason":"<10 words max>"} OR {"action":"replace","target_id":"<id>"} OR {"action":"merge","target_id":"<id>","merged_content":"<text>"}`;
 
           try {
-            const stream = await (env.AI as any).run(config.LLM_MODEL as any, {
-              messages: [{ role: "user", content: prompt }],
-              max_tokens: SMART_MERGE_MAX_TOKENS,
-              stream: true,
-            });
-            const text = await readStreamText(stream as ReadableStream);
+            const text = await chatText(env, config, [{ role: "user", content: prompt }], { maxTokens: SMART_MERGE_MAX_TOKENS });
             const jsonMatch = text.match(/\{[\s\S]*\}/);
             if (jsonMatch) {
               const parsed = JSON.parse(jsonMatch[0]);
@@ -207,12 +244,7 @@ Respond with JSON only. No text outside the JSON object.
 {"contradicts": false} OR {"contradicts": true, "conflicting_id": "<exact_id>", "reason": "<10 words max>"}`;
 
           try {
-            const stream = await (env.AI as any).run(config.LLM_MODEL as any, {
-              messages: [{ role: "user", content: prompt }],
-              max_tokens: CONTRADICTION_MAX_TOKENS,
-              stream: true,
-            });
-            const text = await readStreamText(stream as ReadableStream);
+            const text = await chatText(env, config, [{ role: "user", content: prompt }], { maxTokens: CONTRADICTION_MAX_TOKENS });
             const jsonMatch = text.match(/\{[\s\S]*\}/);
             if (jsonMatch) {
               const parsed = JSON.parse(jsonMatch[0]);

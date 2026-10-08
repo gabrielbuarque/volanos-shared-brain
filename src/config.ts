@@ -70,6 +70,23 @@ export const DEFAULTS = {
   // constants.INSIGHT_LLM_MODEL for why this is a separate setting.
   INSIGHT_LLM_MODEL: "@cf/openai/gpt-oss-120b",
 
+  // ── Provider layer (src/llm/provider.ts) ──
+  // Providers are tried in this order; one without its secret is skipped.
+  LLM_PROVIDER_ORDER: "openrouter,nim,workers-ai",
+  // Picker default for people who have not chosen. Empty-looking value "auto"
+  // means "first of LLM_PROVIDER_ORDER that is configured".
+  LLM_DEFAULT_PROVIDER: "auto",
+  LLM_DEFAULT_MODEL: "auto",
+  // Models shown in the picker ("*" = every model the provider lists).
+  LLM_MODEL_ALLOWLIST: "*",
+  // Providers that may receive memories more restricted than P6. OpenRouter's
+  // free tier may log prompts, so it is not in this list by default.
+  LLM_RESTRICTED_PROVIDERS: "workers-ai,nim",
+
+  // ── Accounts (src/lib/accounts.ts) ──
+  // Domains that may sign in with Google without an invite; they wait as pending at P12.
+  LOGIN_ALLOWED_DOMAINS: "volanos.ca,volanos.ai",
+
   // ── Team edition (src/lib/scope.ts) ──
   // Where a capture lands when neither the request nor the member's own
   // override says. Org-level policy, set by an admin via PATCH /config;
@@ -104,6 +121,45 @@ export const DEFAULTS = {
   // access to it stayed exactly where they were. "auto" is today's behaviour
   // spelled out, so upgrading changes nothing for anybody.
   TEAM_MODE: "auto",
+
+  // ── Reranker (src/recall/reranker.ts) ──
+  // "off" | "jev" | "bge". Off by default: Jev needs TYPESAFE_API_KEY and one
+  // extra call per search; bge needs Workers AI.
+  RERANKER: "off",
+  // Share of the final score taken from the grader (the rest is the original score).
+  RERANKER_JEV_WEIGHT: 0.7,
+  RERANKER_MAX_CANDIDATES: 30,
+  RERANKER_TIMEOUT_MS: 2500,
+
+  // ── Markdown export (src/export/) ──
+  // The repository is the switch: empty = export off. "owner/repo", private, holds P0.
+  EXPORT_REPO: "",
+  EXPORT_BRANCH: "main",
+  // One commit per run; a first export of a large brain simply spans several runs.
+  EXPORT_MAX_ENTRIES_PER_RUN: 1000,
+
+  // ── Memory aging (src/aging/) ──
+  // Each weekly job is OFF until switched on: "on" | "off". None calls a model.
+  AGING_DEDUP: "off",
+  AGING_CONTRADICTIONS: "off",
+  AGING_COMPACT: "off",
+  // Memories scanned per weekly run (one Worker invocation's budget); the cursor resumes where it stopped.
+  AGING_SCAN_BATCH: 25,
+  AGING_DEDUP_THRESHOLD: 0.95,
+  AGING_CONTRADICTION_SIMILARITY: 0.85,
+  // A note nobody opened for this long counts as cold.
+  AGING_COLD_DAYS: 180,
+  AGING_COMPACT_BATCH: 6,
+  AGING_COMPACT_MIN_CHARS: 700,
+
+  // ── Usage ranking (src/memory/usage.ts) ──
+  // Opened / cited / reached-by-link memories earn a bonus that only ever adds to
+  // a score, and fades with the time since the last access.
+  USAGE_BONUS_MAX: 0.2,
+  USAGE_BONUS_STEP: 0.05,
+  USAGE_HALF_LIFE_DECISION_DAYS: 180,
+  USAGE_HALF_LIFE_MEETING_DAYS: 45,
+  USAGE_HALF_LIFE_DEFAULT_DAYS: 90,
 } as const;
 
 // DEFAULTS is `as const` so the shipped values are pinned and a typo shows up
@@ -117,7 +173,7 @@ export type ConfigKey = keyof Config;
 
 type Rule =
   | { kind: "number"; min: number; max: number; integer?: boolean }
-  | { kind: "string" };
+  | { kind: "string"; /** The shipped default is empty and an override may clear it. */ allowEmpty?: boolean };
 
 /**
  * Accepted shape and range per key. Enforced at resolve time rather than only
@@ -164,9 +220,40 @@ export const RULES: Record<ConfigKey, Rule> = {
   LLM_MODEL: { kind: "string" },
   EMBEDDING_MODEL: { kind: "string" },
   INSIGHT_LLM_MODEL: { kind: "string" },
+  LLM_PROVIDER_ORDER: { kind: "string" },
+  LLM_DEFAULT_PROVIDER: { kind: "string" },
+  LLM_DEFAULT_MODEL: { kind: "string" },
+  LLM_MODEL_ALLOWLIST: { kind: "string" },
+  LLM_RESTRICTED_PROVIDERS: { kind: "string" },
+  LOGIN_ALLOWED_DOMAINS: { kind: "string" },
   TEAM_DEFAULT_WORKSPACE: { kind: "string" },
   TEAM_INSIGHTS: { kind: "string" },
   TEAM_MODE: { kind: "string" },
+
+  RERANKER: { kind: "string" },
+  RERANKER_JEV_WEIGHT: { kind: "number", min: 0, max: 1 },
+  RERANKER_MAX_CANDIDATES: { kind: "number", min: 2, max: 30, integer: true },
+  RERANKER_TIMEOUT_MS: { kind: "number", min: 200, max: 10000, integer: true },
+
+  AGING_DEDUP: { kind: "string" },
+  AGING_CONTRADICTIONS: { kind: "string" },
+  AGING_COMPACT: { kind: "string" },
+  AGING_SCAN_BATCH: { kind: "number", min: 5, max: 100, integer: true },
+  AGING_DEDUP_THRESHOLD: { kind: "number", min: 0.8, max: 1 },
+  AGING_CONTRADICTION_SIMILARITY: { kind: "number", min: 0.5, max: 1 },
+  AGING_COLD_DAYS: { kind: "number", min: 30, max: 3650, integer: true },
+  AGING_COMPACT_BATCH: { kind: "number", min: 1, max: 25, integer: true },
+  AGING_COMPACT_MIN_CHARS: { kind: "number", min: 300, max: 20000, integer: true },
+
+  EXPORT_REPO: { kind: "string", allowEmpty: true },
+  EXPORT_BRANCH: { kind: "string" },
+  EXPORT_MAX_ENTRIES_PER_RUN: { kind: "number", min: 50, max: 5000, integer: true },
+
+  USAGE_BONUS_MAX: { kind: "number", min: 0, max: 1 },
+  USAGE_BONUS_STEP: { kind: "number", min: 0, max: 1 },
+  USAGE_HALF_LIFE_DECISION_DAYS: { kind: "number", min: 1, max: 3650, integer: true },
+  USAGE_HALF_LIFE_MEETING_DAYS: { kind: "number", min: 1, max: 3650, integer: true },
+  USAGE_HALF_LIFE_DEFAULT_DAYS: { kind: "number", min: 1, max: 3650, integer: true },
 };
 
 /**
@@ -198,7 +285,7 @@ export function coerce(key: ConfigKey, value: unknown): { value: Config[ConfigKe
   const fallback = DEFAULTS[key] as Config[ConfigKey];
 
   if (rule.kind === "string") {
-    if (typeof value !== "string" || value.trim() === "") {
+    if (typeof value !== "string" || (value.trim() === "" && !rule.allowEmpty)) {
       return { value: fallback, note: `${key}: expected a non-empty string, got ${typeof value}` };
     }
     return { value: value as Config[ConfigKey] };

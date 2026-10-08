@@ -17,7 +17,7 @@
 import type { Env } from "../env";
 import { DEFAULTS, type Config } from "../config";
 import { INSIGHT_PASS_MAX_TOKENS } from "../constants";
-import { readStreamText } from "../lib/ai";
+import { chatText } from "../llm/provider";
 
 export type InsightShape = "contradiction" | "throughline" | "connection";
 
@@ -369,12 +369,7 @@ Answer this even when you answered {"insight": false}. If none of the three fit,
     // a stronger model. See the cost comment on constants.INSIGHT_LLM_MODEL
     // for why that does not also change classification, contradiction
     // detection, smart merge, digests or recall synthesis.
-    const stream = await (env.AI as any).run(config.INSIGHT_LLM_MODEL as any, {
-      messages: [{ role: "user", content: prompt }],
-      max_tokens: INSIGHT_PASS_MAX_TOKENS,
-      stream: true,
-    });
-    raw = await readStreamText(stream as ReadableStream);
+    raw = await chatText(env, config, [{ role: "user", content: prompt }], { maxTokens: INSIGHT_PASS_MAX_TOKENS, workersModel: config.INSIGHT_LLM_MODEL });
   } catch (e) {
     // The call never produced an answer to judge — nothing was decided, so the
     // pair must stay eligible to be asked again rather than being marked as a

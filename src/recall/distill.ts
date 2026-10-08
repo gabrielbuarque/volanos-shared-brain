@@ -5,7 +5,7 @@ import {
   MAX_QUERY_TERMS,
   QUERY_SATURATION_FRACTION,
 } from "../constants";
-import { readStreamText } from "../lib/ai";
+import { chatText } from "../llm/provider";
 import type { Identity } from "../lib/identity";
 import { scopeWhereForRead } from "../lib/scope";
 import { tokenizeQuery } from "../text/tokenize";
@@ -47,15 +47,10 @@ export async function inferQueryTags(query: string, env: Env, config: Readonly<C
   if (!knownTags.length) return [];
 
   try {
-    const stream = await env.AI.run(config.LLM_MODEL as any, {
-      messages: [{
+    const text = await chatText(env, config, [{
         role: "user",
         content: `From this list of tags: ${knownTags.slice(0, 50).join(", ")}\n\nWhich tags best match this query? Reply with only a comma-separated list of matching tag names from the list, or nothing if none apply.\n\nQuery: ${query.slice(0, 300)}`,
-      }],
-      max_tokens: 100,
-      stream: true,
-    });
-    const text = await readStreamText(stream as ReadableStream);
+      }], { maxTokens: 100 });
     const knownSet = new Set(knownTags);
     return text.split(",").map(t => t.trim().toLowerCase()).filter(t => t && knownSet.has(t));
   } catch {

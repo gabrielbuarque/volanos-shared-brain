@@ -15,6 +15,10 @@ import { handleMigrationRoutes } from "./migration";
 import { handleOAuthRevokeRoutes } from "./oauth-revoke";
 import { handlePermissionRoutes } from "./permissions";
 import { handleIngestRoutes } from "./ingest";
+import { handleSharedBrainRoutes } from "./shared-brain";
+import { handleAccountRoutes } from "./accounts";
+import { handleExportRoutes } from "./export";
+import { handleMemoryHealthRoutes } from "./memory-health";
 
 type RouteHandler = (
   request: Request,
@@ -37,6 +41,10 @@ const routeHandlers: RouteHandler[] = [
   handleOAuthRevokeRoutes,
   handlePermissionRoutes,
   handleIngestRoutes,
+  handleSharedBrainRoutes,
+  handleAccountRoutes,
+  handleExportRoutes,
+  handleMemoryHealthRoutes,
 ];
 
 export function createDefaultHandler() {

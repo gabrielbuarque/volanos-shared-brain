@@ -1,5 +1,5 @@
 import type { Identity } from "./identity";
-import { entryPermissionClause } from "./permissions";
+import { entryPermissionClause, type Reader } from "./permissions";
 
 /**
  * The one place workspace scoping is spelled out. Every SQL statement whose rows
@@ -30,6 +30,13 @@ export interface WriteContext {
   clearanceLevel?: number;
   directoryId?: string | null;
   sourcePath?: string | null;
+  /**
+   * Who is writing, in permission terms. Duplicate/contradiction detection reads
+   * existing rows to compare against, and a writer must not see (or have an LLM
+   * be shown) a row above their level just because their new note resembles it.
+   * Absent for system writers; those compare only at the new entry's own level.
+   */
+  reader?: Reader;
 }
 
 /**

@@ -129,6 +129,7 @@ async function loadTeam() {
     teamIsAdmin = true
     setTeamNavVisible(true)
     renderTeam()
+    if (typeof loadVolAdmin === 'function') loadVolAdmin().catch(() => {})
   } catch {
     await loadTeamMemberView()
   }
@@ -166,6 +167,7 @@ async function loadTeamMemberView() {
     await loadMyCaptureDefault()
     setTeamNavVisible(true)
     renderTeamMember()
+    if (typeof volMountMemberQueue === 'function') volMountMemberQueue()
   } catch {
     setTeamNavVisible(false)
     renderTeamAdminsOnly()
@@ -767,11 +769,15 @@ function teamShareSelect({ id, onchange, selected, title, label }) {
 
 function teamClearanceSelect(m) {
   const selected = Number.isInteger(Number(m.clearanceFloor)) ? Number(m.clearanceFloor) : 12
-  return `<label class="team-capture-label" title="Lowest readable clearance level; P0 is most restricted">
-        Clearance
+  const hint = typeof volLevelText === 'function' ? volLevelText(selected) : ''
+  const opts = typeof volLevelOptions === 'function'
+    ? volLevelOptions(selected)
+    : Array.from({ length: 13 }, (_, level) => `<option value="${level}"${selected === level ? ' selected' : ''}>P${level}</option>`).join('')
+  return `<label class="team-capture-label" title="${escAttr(hint || 'Nível mais restrito que a pessoa lê; P0 é o mais restrito')}">
+        Nível
         <span class="team-select-wrap">
           <select class="team-select" onchange="setMemberClearance('${escAttr(m.userId)}', this.value)">
-            ${Array.from({ length: 13 }, (_, level) => `<option value="${level}"${selected === level ? ' selected' : ''}>P${level}</option>`).join('')}
+            ${opts}
           </select><i class="ti ti-chevron-down"></i>
         </span>
       </label>`

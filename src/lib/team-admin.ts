@@ -12,6 +12,10 @@ export interface TeamMember {
   role: "admin" | "member";
   /** Lowest clearance level this member may read/write; P0 is most restricted. */
   clearanceFloor: number;
+  /** 'pending' for a self-signup waiting for an admin; 'active' otherwise. */
+  approvalStatus?: "active" | "pending";
+  /** Skips the approval queue for chunks flagged only for review. */
+  directPublish?: boolean;
   suspended: boolean;
   createdAt: number;
   /**
@@ -73,6 +77,7 @@ export async function listMembers(env: Env): Promise<TeamMember[]> {
     // scope-exempt: admin member list: the subselect counts rows in each member's OWN workspace (e.workspace_id = w.id) and yields a number, never content
     `SELECT u.id AS userId, u.name, u.email, u.role, u.suspended, u.created_at AS createdAt,
             u.default_share AS defaultShare, u.last_used_at AS lastUsedAt, u.clearance_floor AS clearanceFloor,
+            u.approval_status AS approvalStatus, u.direct_publish AS directPublish,
             w.id AS personalWorkspaceId,
             (SELECT COUNT(*) FROM entries e WHERE e.workspace_id = w.id) AS privateEntries
      FROM users u
@@ -84,6 +89,8 @@ export async function listMembers(env: Env): Promise<TeamMember[]> {
   return (results ?? []).map((r) => ({
     ...r,
     suspended: !!r.suspended,
+    approvalStatus: r.approvalStatus === "pending" ? "pending" as const : "active" as const,
+    directPublish: Number(r.directPublish) === 1,
     // SQLite hands NULL back as null already; the coalesce is for D1's own
     // undefined-for-absent-column behaviour on a brain mid-migration.
     lastUsedAt: r.lastUsedAt ?? null,

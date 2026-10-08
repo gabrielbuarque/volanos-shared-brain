@@ -110,6 +110,16 @@ export const RECENT_INSIGHT_WINDOW = 10;
  */
 export const MAX_SLICE_STATEMENTS = 2;
 
+/**
+ * An insight is written FROM two memories, so it is only as readable as the more
+ * restricted of them (P0 is the most restricted: lower number wins). Stored at the
+ * default P12 it would hand a P0 conclusion to every account.
+ */
+export function insightClearance(c: Pick<CandidateRow, "a_clearance" | "b_clearance">): number {
+  const level = (v: number | null | undefined) => (Number.isInteger(v) ? Number(v) : 12);
+  return Math.min(level(c.a_clearance), level(c.b_clearance));
+}
+
 interface CandidateRow {
   id: string;
   score: number;
@@ -122,6 +132,9 @@ interface CandidateRow {
   a_created_at: number;
   b_created_at: number;
   a_workspace_id: string;
+  /** Clearance of each source memory; the insight is stored at the more restricted of the two. */
+  a_clearance?: number | null;
+  b_clearance?: number | null;
   b_workspace_id: string;
 }
 
@@ -245,13 +258,16 @@ export async function runWeeklyInsights(
         `SELECT c.id, c.score, c.a_id, c.b_id, a.content AS a_content, b.content AS b_content,
                 a.tags AS a_tags, b.tags AS b_tags,
                 a.created_at AS a_created_at, b.created_at AS b_created_at,
-                a.workspace_id AS a_workspace_id, b.workspace_id AS b_workspace_id
+                a.workspace_id AS a_workspace_id, b.workspace_id AS b_workspace_id,
+                a.clearance_level AS a_clearance, b.clearance_level AS b_clearance
          FROM insight_candidates c
          JOIN entries a ON a.id = c.a_id
          JOIN entries b ON b.id = c.b_id
          WHERE c.status = 'pending'
            AND a.tags NOT LIKE '%"status:deprecated"%'
            AND b.tags NOT LIKE '%"status:deprecated"%'
+           AND (a.directory_id IS NULL OR NOT EXISTS (SELECT 1 FROM brain_directory_grants _ga WHERE _ga.directory_id = a.directory_id))
+           AND (b.directory_id IS NULL OR NOT EXISTS (SELECT 1 FROM brain_directory_grants _gb WHERE _gb.directory_id = b.directory_id))
            ${sliceClause}
          ORDER BY c.score DESC
          LIMIT ?`,
@@ -509,7 +525,7 @@ export async function runWeeklyInsights(
       // actorId stays "": the insight is system-authored regardless of whose
       // workspace it inherits.
       const captured = await captureEntry(content, ["auto-insight"], "system", env, ctx, cfg,
-        { workspaceId: insightWorkspace, actorId: "" });
+        { workspaceId: insightWorkspace, actorId: "", clearanceLevel: insightClearance(candidate) });
 
       // A non-stored result means the insight duplicated an earlier one. Mark it
       // used anyway, or the pass re-proposes and re-pays for this pair forever.

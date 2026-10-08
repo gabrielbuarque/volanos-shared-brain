@@ -13,6 +13,7 @@
     <link rel="manifest" href="/manifest.json" />
     <link rel="stylesheet" href="css/main.css" />
     <link rel="stylesheet" href="css/graph.css" />
+    <link rel="stylesheet" href="css/volanos.css" />
   </head>
 
   <body>
@@ -409,6 +410,8 @@
                   <div id="team-list" style="display: flex; flex-direction: column; gap: 10px;"></div>
                 </div>
 
+                <div id="vol-admin"></div>
+
                 <div>
                   <div class="digest-section-label" style="margin-bottom: 10px;" data-i18n="team.addTitle">Add member</div>
                   <form id="team-add-form" onsubmit="submitNewMember(); return false">
@@ -679,6 +682,8 @@
     <script src="js/stale.js"></script>
     <script src="js/integrations.js"></script>
     <script src="js/team.js"></script>
+    <script src="js/volanos.js"></script>
+    <script src="js/memory-health.js"></script>
     <script src="js/activity.js"></script>
     <script src="js/graph-canvas.js"></script>
     <script src="js/brief.js"></script>

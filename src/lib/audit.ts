@@ -18,7 +18,12 @@ export type EntryEventName =
   | "shared"
   | "unshared"
   | "insight_confirmed"
-  | "insight_dismissed";
+  | "insight_dismissed"
+  | "superseded"
+  | "archived"
+  | "compacted"
+  | "restored"
+  | "aging_suggested";
 
 export interface AuditEventInput {
   entryId: string;

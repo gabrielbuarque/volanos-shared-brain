@@ -11,6 +11,7 @@ import { embed } from "../lib/ai";
 import type { Identity } from "../lib/identity";
 import { lookupActorLabels, resolveActorLabel } from "../lib/actors";
 import { layerOf, scopeWhereForRead } from "../lib/scope";
+import { scopedEntriesQuery } from "../lib/scoped-entries";
 import { expandGraph } from "../graph/traverse";
 import type { GraphNeighbor } from "../graph/types";
 import { KIND_VALUES, type MemoryKind } from "../memory/kind";
@@ -30,6 +31,8 @@ import type { KeywordRow, RecallInternalOptions, RecallMatch, RecallSearchResult
 import { TAG_LIKE_ESCAPE, tagLikePattern } from "../memory/tag-sql";
 import { workspaceFilter, queryVectorizeScoped } from "../vectorize/scope";
 import { observeRecallEnv } from "./diagnostics";
+import { rerankCandidates, rerankerMode, type RerankInfo } from "./reranker";
+import { recordAccess } from "../memory/usage";
 import { chooseEvidenceSlot, type EvidenceSlotCandidate } from "./evidence-rescue";
 import { queryRelevantWindow } from "./snippet";
 
@@ -61,13 +64,24 @@ async function keywordSearch(
     timeBindings.push(bounds.before);
   }
   // Scoped before ORDER BY so LIMIT ranks only readable rows, not readable rows
-  // plus strangers' rows truncated by the window.
-  const scope = identity ? scopeWhereForRead(identity, { layer: only, teamId }) : null;
-  const scopeSql = scope ? ` AND ${scope.clause}` : "";
+  // plus strangers' rows truncated by the window. With an Identity the whole
+  // statement is built by scopedEntriesQuery (src/lib/scoped-entries.ts).
   const tokenWhere = timeWhere ? `(${where})` : where;
+  const predicate = `${tokenWhere}${timeWhere}`;
+  const predicateBindings = [...terms.map(t => `%${t}%`), ...timeBindings];
+  if (identity) {
+    const q = scopedEntriesQuery(identity, {
+      select: "id, content, tags, source, created_at",
+      where: predicate, bindings: predicateBindings, orderBy: "created_at DESC", limit,
+      layer: only, teamId,
+    });
+    const { results } = await env.DB.prepare(q.sql).bind(...q.bindings).all();
+    return results as unknown as KeywordRow[];
+  }
   const { results } = await env.DB.prepare(
-    `SELECT id, content, tags, source, created_at FROM entries WHERE ${tokenWhere}${timeWhere}${scopeSql} ORDER BY created_at DESC LIMIT ?`
-  ).bind(...terms.map(t => `%${t}%`), ...timeBindings, ...(scope?.bindings ?? []), limit).all();
+    // scope-exempt: identity-less branch: pre-tenancy callers and unit fixtures; the scoped arm is scopedEntriesQuery above
+    `SELECT id, content, tags, source, created_at FROM entries WHERE ${predicate} ORDER BY created_at DESC LIMIT ?`
+  ).bind(...predicateBindings, limit).all();
   return results as unknown as KeywordRow[];
 }
 
@@ -323,11 +337,11 @@ export async function recallEntries(
 
   const candidateIds = [...new Set([...fusedMatches, ...rootFusedMatches].map(m => (m.metadata as any)?.parentId ?? m.id))] as string[];
   internal.diagnostics && (internal.diagnostics.fusedIds = [...new Set(rootFusedMatches.map(m => (m.metadata as any)?.parentId ?? m.id))] as string[]);
-  type CandidateSignalRow = { id: string; content?: string; source?: string; created_at?: number; last_updated?: number; recall_count: number; importance_score: number; contradiction_wins: number; contradiction_losses: number; tags: string };
+  type CandidateSignalRow = { id: string; content?: string; source?: string; created_at?: number; last_updated?: number; recall_count: number; importance_score: number; contradiction_wins: number; contradiction_losses: number; tags: string; access_count?: number; last_accessed_at?: number | null };
   const rcRows: CandidateSignalRow[] = [];
   const candidateSignalProjection = hops > 0
-    ? `id, content, source, created_at, COALESCE(updated_at, created_at) AS last_updated, recall_count, importance_score, contradiction_wins, contradiction_losses, tags, workspace_id, actor_id`
-    : "id, recall_count, importance_score, contradiction_wins, contradiction_losses, tags, workspace_id, actor_id";
+    ? `id, content, source, created_at, COALESCE(updated_at, created_at) AS last_updated, recall_count, importance_score, contradiction_wins, contradiction_losses, tags, workspace_id, actor_id, access_count, last_accessed_at`
+    : "id, recall_count, importance_score, contradiction_wins, contradiction_losses, tags, workspace_id, actor_id, access_count, last_accessed_at";
   // Scoped too: this is the leak-catcher for unscoped Vectorize hits — until
   // namespaces land (P3) the dense arm can surface a stranger's id, and the
   // scope clause here is what stops that id from hydrating into signals. The
@@ -349,8 +363,31 @@ export async function recallEntries(
   const contradictionWins = new Map(rcRows.map(r => [r.id, r.contradiction_wins ?? 0]));
   const contradictionLosses = new Map(rcRows.map(r => [r.id, r.contradiction_losses ?? 0]));
   const d1Tags = new Map(rcRows.map(r => [r.id, JSON.parse(r.tags ?? "[]") as string[]]));
+  const usage = new Map(rcRows.map(r => [r.id, { accessCount: r.access_count ?? 0, lastAccessedAt: r.last_accessed_at ?? null, tags: [] as string[], source: r.source }]));
 
-  const directReranked = rerankWithTimeDecay(fusedMatches, recallCounts, importanceScores, queryTags, contradictionWins, contradictionLosses, d1Tags, cfg);
+  // Permission BEFORE the cut. rcRows came back through the scoped clause, so its
+  // ids are exactly the candidates this caller may read. Anything else the dense
+  // arm surfaced (a degraded Vectorize filter, or a directory ACL the vector
+  // metadata cannot express) must not take a slot in the MMR/topK window below —
+  // otherwise forbidden hits are dropped only AFTER the window was cut, and a
+  // restricted-heavy corpus leaves the caller with fewer results than exist.
+  const authorizedIds = identity ? new Set(rcRows.map(r => r.id)) : null;
+  const parentIdOf = (m: VectorizeMatch) => ((m.metadata as any)?.parentId ?? m.id) as string;
+  const readableOnly = (list: VectorizeMatch[]) => authorizedIds ? list.filter(m => authorizedIds.has(parentIdOf(m))) : list;
+  const readableFused = readableOnly(fusedMatches);
+  const readableRootFused = readableOnly(rootFusedMatches);
+  if (authorizedIds) {
+    semanticRankByParent.clear();
+    [...results.matches]
+      .filter(match => authorizedIds.has(parentIdOf(match as VectorizeMatch)))
+      .sort((x, y) => y.score - x.score || x.id.localeCompare(y.id))
+      .forEach(match => {
+        const parentId = parentIdOf(match as VectorizeMatch);
+        if (!semanticRankByParent.has(parentId)) semanticRankByParent.set(parentId, semanticRankByParent.size + 1);
+      });
+  }
+
+  const directReranked = rerankWithTimeDecay(readableFused, recallCounts, importanceScores, queryTags, contradictionWins, contradictionLosses, d1Tags, cfg, { usage });
   internal.diagnostics && (internal.diagnostics.candidateIds = directReranked.map(m => ((m.metadata as any)?.parentId ?? m.id) as string));
 
   const seen = new Set<string>();
@@ -360,7 +397,12 @@ export async function recallEntries(
     seen.add(parentId);
     return true;
   });
-  const directCandidates = mmrRerank(dedupedAll, cfg.MMR_LAMBDA, topK);
+  // With a reranker on, the pool it grades is wider than the answer: the reranker
+  // picks the topK out of up to RERANKER_MAX_CANDIDATES readable candidates.
+  // Greedy MMR makes the first topK of a wider run identical to a topK run.
+  const rerankMode = identity ? rerankerMode(cfg) : "off";
+  const rerankPool = rerankMode === "off" ? topK : Math.min(Math.max(2, cfg.RERANKER_MAX_CANDIDATES), Math.max(topK, topK * 3));
+  const directCandidates = mmrRerank(dedupedAll, cfg.MMR_LAMBDA, rerankPool);
   markStage("candidateHydration");
 
   if (!directCandidates.length) return { matches: [], insight: "", semanticUnavailable };
@@ -370,7 +412,7 @@ export async function recallEntries(
   let rootCandidates: RootCandidate[] = [];
   if (hops > 0) {
     const candidateContent = new Map(rcRows.map(r => [r.id, r.content ?? ""]));
-    const rootReranked = rerankWithTimeDecay(rootFusedMatches, recallCounts, importanceScores, queryTags, contradictionWins, contradictionLosses, d1Tags, cfg, { useRecallFrequency: false });
+    const rootReranked = rerankWithTimeDecay(readableRootFused, recallCounts, importanceScores, queryTags, contradictionWins, contradictionLosses, d1Tags, cfg, { useRecallFrequency: false, usage });
     const rootSeen = new Set<string>();
     rootCandidates = rootReranked.flatMap(match => {
       const parentId = ((match.metadata as any)?.parentId ?? match.id) as string;
@@ -448,7 +490,7 @@ export async function recallEntries(
   const candidateSignalById = new Map(rcRows.map(row => [row.id, row]));
   markStage("finalHydration");
 
-  const directMatches: RecallMatch[] = directCandidates.flatMap((m) => {
+  let directMatches: RecallMatch[] = directCandidates.flatMap((m) => {
     const meta = m.metadata as Record<string, any>;
     const parentId = (meta?.parentId ?? m.id) as string;
     const row = d1Map.get(parentId);
@@ -467,6 +509,21 @@ export async function recallEntries(
       staleAsOf: hasStaleAsOf(JSON.parse(row.tags ?? "[]")),
     }];
   }).sort((a, b) => b.score - a.score);
+
+  // Reranker. Everything in directMatches came out of the scoped D1 hydration
+  // above, so nothing above the caller's level can reach the grader. It only
+  // reorders: a failure of any kind leaves the order exactly as it was.
+  let rerankInfo: RerankInfo | undefined;
+  if (rerankMode !== "off" && directMatches.length > 1) {
+    const { scores, info } = await rerankCandidates(env, cfg, lexicalQuery, directMatches.map(m => ({ id: m.id, content: m.content, score: m.score })));
+    rerankInfo = info;
+    if (scores) {
+      directMatches = directMatches
+        .map(m => ({ ...m, score: scores.get(m.id) ?? m.score }))
+        .sort((a, b) => b.score - a.score || a.id.localeCompare(b.id));
+    }
+  }
+  if (rerankMode !== "off") markStage("rerank");
 
   const maximumRootScore = Math.max(...selectedRoots.map(x => x.candidate.rootScore));
   const normalizedRootDivisor = maximumRootScore > 0 ? maximumRootScore : 1;
@@ -642,12 +699,16 @@ export async function recallEntries(
   markStage("selection");
 
   const presentedDirectIds = finalDirectIds;
+  // Presented direct matches are "cited in an answer": recall_count as before, plus
+  // the usage counters behind the ranking bonus. Matches reached through a graph
+  // link count as an access too (one extra statement, only when hops > 0).
   ctx.waitUntil(
-    Promise.all(
-      [...presentedDirectIds].map(id =>
-        env.DB.prepare(`UPDATE entries SET recall_count = recall_count + 1 WHERE id = ?`).bind(id).run()
-      )
-    ).catch(e => console.error("recall_count update failed (non-fatal):", e))
+    Promise.all([
+      ...[...presentedDirectIds].map(id =>
+        env.DB.prepare(`UPDATE entries SET recall_count = recall_count + 1, access_count = access_count + 1, last_accessed_at = ? WHERE id = ?`).bind(now, id).run()
+      ),
+      finalRelated.length ? recordAccess(env, finalRelated.map(m => m.id), now) : Promise.resolve(),
+    ]).catch(e => console.error("recall_count update failed (non-fatal):", e))
   );
 
   const maxScore = matches.reduce((mx, m) => Math.max(mx, m.score), 0);
@@ -677,5 +738,5 @@ export async function recallEntries(
     internal.diagnostics.stageMs.total = performance.now() - totalStartedAt;
   }
 
-  return { matches, insight, semanticUnavailable, queryUsed: lexicalQuery, queryTokens: tokens, compoundStale };
+  return { matches, insight, semanticUnavailable, queryUsed: lexicalQuery, queryTokens: tokens, compoundStale, rerank: rerankInfo };
 }

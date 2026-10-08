@@ -1117,7 +1117,16 @@ describe("the checker over the real source tree", () => {
   //   ✔ scope check: 100 queries, 53 documented exceptions, 7 scope-checked
   //     (clause assembled in JS), 1 scope-outer-join (clause governs a column,
   //     not the row set)
-  it("reports exactly 100 queries, 53 exceptions, 7 scope-checked and 1 outer-join", () => {
+  // MOVED queries 104 -> 122 and exceptions 55 -> 65 by the export, rebuild and memory-aging
+  // jobs (src/export, src/aging): whole-deployment system passes, each read annotated
+  // scope-exempt with the reason; the member-facing reads (suggestions, health,
+  // restore) go through scopeWhere / scopedEntriesQuery and need no exception.
+  // MOVED queries 103 -> 104 and exceptions 54 -> 55 by src/memory/versions.ts: the
+  // history snapshot copies the row the caller is rewriting (annotated by-id).
+  // MOVED queries 102 -> 103 by the permission audit (docs/volanos/permission-audit.md):
+  // keywordSearch now builds its scoped arm with scopedEntriesQuery and keeps its
+  // identity-less arm as the one annotated exception it already was.
+  it("reports exactly 122 queries, 65 exceptions, 7 scope-checked and 1 outer-join", () => {
     const run = spawnSync("node", [resolve(ROOT, "scripts/check-scope.mjs")], {
       cwd: ROOT,
       encoding: "utf8",
@@ -1132,7 +1141,7 @@ describe("the checker over the real source tree", () => {
       { queries, exempt, checked, outerJoin },
       "check:scope counts moved. If that was deliberate, say so out loud and " +
         "update this expectation in the same commit.",
-    ).toEqual({ queries: 100, exempt: 53, checked: 7, outerJoin: 1 });
+    ).toEqual({ queries: 122, exempt: 65, checked: 7, outerJoin: 1 });
   });
 
   it("is wired into package.json and CI, or nothing runs it", () => {

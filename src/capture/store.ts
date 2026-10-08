@@ -6,6 +6,7 @@ import { inferEdgesOnWrite } from "../graph/edges";
 import { neighborsFromVectorQuery } from "../graph/traverse";
 import { chunkText } from "../text/chunk";
 import { rememberTags } from "../tags/vocabulary";
+import { snapshotAndBump } from "../memory/versions";
 import { applyTagReplacement } from "../tags/system";
 import { extractHashtags } from "../text/hashtags";
 import { isVectorizeUnavailable } from "../vectorize/health";
@@ -241,6 +242,9 @@ export async function updateEntryContent(
   // workspace_id is never touched here (share/unshare moves rows, nothing else does),
   // and actor_id is left untouched: the original author of a row being edited is not
   // this call's to decide.
+  // The text being replaced goes to history first (restorable), and the entry moves to
+  // its next version.
+  await snapshotAndBump(env, id, { actorId: writeCtx.actorId, reason: "edit" });
   await env.DB.prepare(`UPDATE entries SET content = ?, tags = ?, updated_at = ? WHERE id = ?`)
     .bind(finalContent, JSON.stringify(mergedTags), Date.now(), id).run();
 
@@ -248,7 +252,7 @@ export async function updateEntryContent(
   // two places an unknown tag enters the corpus (#288). It sits here rather than in the
   // route because #289 made this the single update path — putting it in the caller would
   // have left the MCP tool introducing tags the cache never learned about.
-  await rememberTags(env, mergedTags, embedCtx.workspaceId);
+  await rememberTags(env, mergedTags, embedCtx.workspaceId, embedCtx.clearanceLevel);
 
   if (newVectorIds) {
     try {

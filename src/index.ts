@@ -7,7 +7,8 @@ import { OAuthProvider } from "@cloudflare/workers-oauth-provider";
 import type { Env } from "./env";
 import { runNightlyCompression } from "./compression/nightly";
 import { runGraphPass } from "./graph/pass";
-import { INTEGRATION_SYNC_CRON, runScheduledIntegrationSync } from "./integrations/mirror";
+import { INTEGRATION_SYNC_CRON } from "./integrations/mirror";
+import { runHourlySlot } from "./runtime/hourly";
 import { runStalenessPass } from "./staleness/pass";
 import { nextWorkspace } from "./runtime/rotation";
 import { runInsightAccrual } from "./insight/candidates";
@@ -66,7 +67,9 @@ export default {
     // both triggers would run everything and the split would cost budget instead of
     // buying it.
     if (event.cron === INTEGRATION_SYNC_CRON) {
-      job("integration sync", runScheduledIntegrationSync(env));
+      // Most hours this is the integration sync; at the export / weekly-aging hours it is that job
+      // instead (src/runtime/slots.ts), because the free plan has no sixth trigger to give them.
+      job("hourly slot", runHourlySlot(env, event.scheduledTime ?? Date.now()));
       return;
     }
 

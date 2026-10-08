@@ -2,7 +2,8 @@ import type { Env } from "../env";
 import { DEFAULTS, resolveConfig, type Config } from "../config";
 import { captureEntry } from "../capture/entry";
 import { DIGEST_MAX_TOKENS, LLM_MODEL } from "../constants";
-import { readStreamText } from "../lib/ai";
+import { chatText } from "../llm/provider";
+import { type Reader } from "../lib/permissions";
 import { TAG_LIKE_ESCAPE, tagLikePattern } from "../memory/tag-sql";
 import {
   compressionEligibilitySql,
@@ -30,12 +31,7 @@ State of "${tag}":`;
 
   let digest = "";
   try {
-    const stream = await (env.AI as any).run(config.LLM_MODEL as any, {
-      messages: [{ role: "user", content: prompt }],
-      max_tokens: DIGEST_MAX_TOKENS,
-      stream: true,
-    });
-    digest = await readStreamText(stream as ReadableStream);
+    digest = await chatText(env, config, [{ role: "user", content: prompt }], { maxTokens: DIGEST_MAX_TOKENS });
   } catch (e) {
     console.error("synthesizeDigest LLM call failed (non-fatal):", e);
   }
@@ -68,7 +64,20 @@ async function markSourcesRolledUp(env: Env, ids: string[], digestId: string): P
 export interface CompressTagOptions {
   /** When set, roll up only these workspaces and scope the 24h cooldown per workspace. */
   workspaceIds?: string[];
+  /** Whoever asked (manual GET /digest). Sources above their level never enter the digest. */
+  reader?: Reader;
 }
+
+/**
+ * A digest is a new memory written from many. Two rules keep it from becoming a
+ * way around the clearance levels:
+ *   - it is only built from rows the requester may read (clearance_level >=
+ *     their floor), and never from rows in a directory with an ACL, because the
+ *     digest itself carries no directory;
+ *   - it is partitioned by clearance_level and each digest is stored AT that
+ *     level, so a P0 rollup is never readable by a P12 account.
+ */
+const NO_ACL_DIRECTORY_SQL = `(directory_id IS NULL OR NOT EXISTS (SELECT 1 FROM brain_directory_grants _g WHERE _g.directory_id = entries.directory_id))`;
 
 export async function compressTag(
   tag: string,
@@ -132,8 +141,11 @@ export async function compressTag(
       continue;
     }
 
+    // The requester's own level bounds the sources; the cron has no requester and
+    // takes every level, but digests each level separately (below).
+    const floorSql = opts?.reader && !opts.reader.admin ? ` AND clearance_level >= ${Math.max(0, Math.min(12, Math.trunc(opts.reader.floor)))}` : "";
     const { results: rawEntries } = await env.DB.prepare(`
-      SELECT id, content FROM entries
+      SELECT id, content, clearance_level FROM entries
       WHERE tags LIKE ? ${TAG_LIKE_ESCAPE}
         AND tags NOT LIKE '%"synthesized"%'
         AND tags NOT LIKE '%"auto-pattern"%'
@@ -143,37 +155,47 @@ export async function compressTag(
         AND tags NOT LIKE '%"capsule-slot:%'
         AND ${compressionEligibilitySql("", cfg)}
         AND workspace_id = ?
+        AND ${NO_ACL_DIRECTORY_SQL}${floorSql}
       ORDER BY created_at DESC
       LIMIT 50
     `).bind(tagLikePattern(tag), Date.now() - cfg.COMPRESSION_MIN_AGE_MS, workspaceId).all();
 
-    if (rawEntries.length < 10) {
-      continue;
+    // One partition per clearance level; a partition needs its own 10 entries.
+    const byLevel = new Map<number, { id: string; content: string }[]>();
+    for (const r of rawEntries) {
+      const level = Number.isInteger(r.clearance_level) ? Number(r.clearance_level) : 12;
+      const list = byLevel.get(level) ?? [];
+      list.push({ id: r.id as string, content: r.content as string });
+      byLevel.set(level, list);
     }
 
-    const rows = rawEntries.map(r => ({ id: r.id as string, content: r.content as string }));
-    const digestText = await synthesizeDigest(tag, rows, env, cfg);
-    if (!digestText) continue;
+    for (const [level, rows] of [...byLevel.entries()].sort((a, b) => a[0] - b[0])) {
+      if (rows.length < 10) continue;
+      const digestText = await synthesizeDigest(tag, rows, env, cfg);
+      if (!digestText) continue;
 
-    const content = `[Synthesized from ${rows.length} entries tagged "${tag}"]\n\n${digestText}`;
-    // The digest inherits the partition's workspace and keeps actor "" — system-
-    // authored, like every pre-team pipeline row.
-    const result = await captureEntry(content, ["synthesized", tag], "system", env, ctx, cfg,
-      { workspaceId, actorId: "" });
+      const content = `[Synthesized from ${rows.length} entries tagged "${tag}"]
 
-    if (result.status !== "stored") {
-      continue;
+${digestText}`;
+      // The digest inherits the partition's workspace AND clearance level and keeps
+      // actor "" — system-authored, like every pre-team pipeline row.
+      const result = await captureEntry(content, ["synthesized", tag], "system", env, ctx, cfg,
+        { workspaceId, actorId: "", clearanceLevel: level });
+
+      if (result.status !== "stored") {
+        continue;
+      }
+
+      await markSourcesRolledUp(env, rows.map(r => r.id), result.id);
+
+      // First successful digest defines the returned text/id; counts accumulate across
+      // workspaces so a caller still learns how much was compressed tonight.
+      if (!synthesizedId) {
+        synthesizedId = result.id;
+        text = digestText;
+      }
+      entriesUsed += rows.length;
     }
-
-    await markSourcesRolledUp(env, rows.map(r => r.id), result.id);
-
-    // First successful digest defines the returned text/id; counts accumulate across
-    // workspaces so a caller still learns how much was compressed tonight.
-    if (!synthesizedId) {
-      synthesizedId = result.id;
-      text = digestText;
-    }
-    entriesUsed += rows.length;
   }
 
   return { synthesizedId, entriesUsed, text };

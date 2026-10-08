@@ -132,6 +132,27 @@ const SCHEMA_OBJECTS: Record<string, string> = {
   idx_brain_directories_workspace: `CREATE INDEX IF NOT EXISTS idx_brain_directories_workspace ON brain_directories(workspace_id, path)`,
   brain_directory_grants: `CREATE TABLE IF NOT EXISTS brain_directory_grants (directory_id TEXT NOT NULL, user_id TEXT NOT NULL, can_read INTEGER NOT NULL DEFAULT 1, can_write INTEGER NOT NULL DEFAULT 0, can_delete INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL, PRIMARY KEY(directory_id, user_id))`,
   idx_brain_directory_grants_user: `CREATE INDEX IF NOT EXISTS idx_brain_directory_grants_user ON brain_directory_grants(user_id, directory_id)`,
+  // Shared Brain pilot: ingest classification, approval queue, document tree, invites.
+  entry_classification: `CREATE TABLE IF NOT EXISTS entry_classification (entry_id TEXT PRIMARY KEY, doc_id TEXT NOT NULL, node_id TEXT NOT NULL, ord INTEGER NOT NULL DEFAULT 0, jev_level INTEGER, confidence REAL, top3 TEXT NOT NULL DEFAULT '[]', review INTEGER NOT NULL DEFAULT 0, model TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL)`,
+  idx_entry_classification_doc: `CREATE INDEX IF NOT EXISTS idx_entry_classification_doc ON entry_classification(doc_id, node_id, ord)`,
+  idx_entry_classification_review: `CREATE INDEX IF NOT EXISTS idx_entry_classification_review ON entry_classification(review, created_at DESC)`,
+  doc_nodes: `CREATE TABLE IF NOT EXISTS doc_nodes (doc_id TEXT NOT NULL, node_id TEXT NOT NULL, workspace_id TEXT NOT NULL, parent_id TEXT, title TEXT NOT NULL, path TEXT NOT NULL, ord INTEGER NOT NULL DEFAULT 0, source_path TEXT, created_at INTEGER NOT NULL, PRIMARY KEY(doc_id, node_id))`,
+  idx_doc_nodes_workspace: `CREATE INDEX IF NOT EXISTS idx_doc_nodes_workspace ON doc_nodes(workspace_id, doc_id)`,
+  contributions: `CREATE TABLE IF NOT EXISTS contributions (id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, submitter_id TEXT NOT NULL, doc_id TEXT NOT NULL, node_id TEXT NOT NULL, ord INTEGER NOT NULL DEFAULT 0, source TEXT NOT NULL DEFAULT '', source_path TEXT, content TEXT NOT NULL, suggested_level INTEGER NOT NULL, confidence REAL, top3 TEXT NOT NULL DEFAULT '[]', reason TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'pending', resolved_by TEXT, resolved_at INTEGER, final_level INTEGER, entry_id TEXT, created_at INTEGER NOT NULL)`,
+  idx_contributions_queue: `CREATE INDEX IF NOT EXISTS idx_contributions_queue ON contributions(status, suggested_level, created_at DESC)`,
+  member_invites: `CREATE TABLE IF NOT EXISTS member_invites (id TEXT PRIMARY KEY, email TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'member', clearance_floor INTEGER NOT NULL DEFAULT 12, token_hash TEXT NOT NULL, invited_by TEXT NOT NULL, created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL, accepted_at INTEGER, cancelled_at INTEGER)`,
+  idx_member_invites_token: `CREATE UNIQUE INDEX IF NOT EXISTS idx_member_invites_token ON member_invites(token_hash)`,
+  member_sessions: `CREATE TABLE IF NOT EXISTS member_sessions (token_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL, created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL)`,
+  idx_member_sessions_user: `CREATE INDEX IF NOT EXISTS idx_member_sessions_user ON member_sessions(user_id)`,
+  idx_member_invites_email: `CREATE INDEX IF NOT EXISTS idx_member_invites_email ON member_invites(email)`,
+  // History (versions) and memory aging. Additive: old code ignores them and a
+  // rollback is a no-op. See db/schema.sql for the column notes.
+  entry_versions: `CREATE TABLE IF NOT EXISTS entry_versions (id TEXT PRIMARY KEY, entry_id TEXT NOT NULL, version INTEGER NOT NULL, content TEXT NOT NULL, tags TEXT NOT NULL DEFAULT '[]', clearance_level INTEGER NOT NULL DEFAULT 12, directory_id TEXT, source_path TEXT, actor_id TEXT NOT NULL DEFAULT '', reason TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL, UNIQUE(entry_id, version))`,
+  idx_entry_versions_entry: `CREATE INDEX IF NOT EXISTS idx_entry_versions_entry ON entry_versions(entry_id, version DESC)`,
+  aging_suggestions: `CREATE TABLE IF NOT EXISTS aging_suggestions (id TEXT PRIMARY KEY, kind TEXT NOT NULL, workspace_id TEXT NOT NULL DEFAULT '', a_id TEXT NOT NULL, b_id TEXT NOT NULL, score REAL NOT NULL DEFAULT 0, detail TEXT NOT NULL DEFAULT '{}', owner_id TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'open', resolution TEXT NOT NULL DEFAULT '', resolved_by TEXT NOT NULL DEFAULT '', resolved_at INTEGER, created_at INTEGER NOT NULL, UNIQUE(kind, a_id, b_id))`,
+  idx_aging_suggestions_queue: `CREATE INDEX IF NOT EXISTS idx_aging_suggestions_queue ON aging_suggestions(status, kind, created_at DESC)`,
+  job_runs: `CREATE TABLE IF NOT EXISTS job_runs (id TEXT PRIMARY KEY, job TEXT NOT NULL, actor_id TEXT NOT NULL DEFAULT '', started_at INTEGER NOT NULL, finished_at INTEGER NOT NULL, ok INTEGER NOT NULL DEFAULT 1, summary TEXT NOT NULL DEFAULT '{}')`,
+  idx_job_runs_recent: `CREATE INDEX IF NOT EXISTS idx_job_runs_recent ON job_runs(started_at DESC)`,
 };
 
 /**
@@ -166,6 +187,16 @@ const ENTRIES_COLUMNS: Record<string, string> = {
   clearance_level: `ALTER TABLE entries ADD COLUMN clearance_level INTEGER NOT NULL DEFAULT 12`,
   directory_id: `ALTER TABLE entries ADD COLUMN directory_id TEXT`,
   source_path: `ALTER TABLE entries ADD COLUMN source_path TEXT`,
+  // Usage ranking (3a). A default of 0 / NULL is the true value for every existing
+  // row: nothing has been counted yet, so there is nothing to backfill.
+  access_count: `ALTER TABLE entries ADD COLUMN access_count INTEGER NOT NULL DEFAULT 0`,
+  last_accessed_at: `ALTER TABLE entries ADD COLUMN last_accessed_at INTEGER`,
+  // History and aging. Every existing row is version 1 of itself, not superseded,
+  // not archived, not compacted.
+  version: `ALTER TABLE entries ADD COLUMN version INTEGER NOT NULL DEFAULT 1`,
+  superseded_by: `ALTER TABLE entries ADD COLUMN superseded_by TEXT`,
+  archived_at: `ALTER TABLE entries ADD COLUMN archived_at INTEGER`,
+  compacted_at: `ALTER TABLE entries ADD COLUMN compacted_at INTEGER`,
 };
 
 /**
@@ -197,6 +228,10 @@ const USERS_COLUMNS: Record<string, string> = {
   // user to make the roster say something untrue. NULL renders as "Never used".
   last_used_at: `ALTER TABLE users ADD COLUMN last_used_at INTEGER`,
   clearance_floor: `ALTER TABLE users ADD COLUMN clearance_floor INTEGER NOT NULL DEFAULT 12`,
+  // Skips the approval queue for chunks flagged only for review (never for ones above the member's level).
+  direct_publish: `ALTER TABLE users ADD COLUMN direct_publish INTEGER NOT NULL DEFAULT 0`,
+  // 'active' | 'pending'. A self-signup from an allowed domain waits as 'pending' (and suspended) until an admin approves.
+  approval_status: `ALTER TABLE users ADD COLUMN approval_status TEXT NOT NULL DEFAULT 'active'`,
 };
 
 /**

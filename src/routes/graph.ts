@@ -1,4 +1,5 @@
 import type { Env } from "../env";
+import { recordAccessAfterResponse } from "../memory/usage";
 import { intParam, json, readWorkspaceParam, readTeamQueryParam } from "../lib/http";
 import { getReadableEntry } from "../lib/entry-access";
 import { requireIdentity } from "../lib/identity";
@@ -11,7 +12,7 @@ export async function handleGraphRoutes(
   request: Request,
   url: URL,
   env: Env,
-  _ctx: ExecutionContext,
+  ctx: ExecutionContext,
 ): Promise<Response | null> {
   // POST /link — create an explicit edge between two memories, mirrors the MCP `link` tool
   if (url.pathname === "/link" && request.method === "POST") {
@@ -95,6 +96,8 @@ export async function handleGraphRoutes(
     const type = url.searchParams.get("type")?.trim() || undefined;
 
     const connections = await getConnections(id, type, env, await resolveConfig(env), auth);
+    // The memories reached through the link were served to the caller: count them.
+    recordAccessAfterResponse(env, ctx, connections.map(c => c.id));
     return json({ ok: true, id, connections });
   }
 

@@ -51,6 +51,10 @@
 			// runScheduledIntegrationSync) — a nightly rotation would leave a user
 			// with several connections waiting days between syncs. Offset to :30 so
 			// it never fires in the same minute as the nightly job.
+			// This is also the only trigger the Markdown export and the weekly memory-aging
+			// passes ride on (src/runtime/slots.ts): the plan allows five and all five are
+			// taken, so at 06:30 UTC (03:30 America/Fortaleza) and at 07:30 / 08:30 / 09:30 UTC
+			// on Sundays this invocation runs that job instead of the sync, when it is on.
 			"30 * * * *",
 			// Insight candidate accrual. Its own schedule because it is its own
 			// budget: maintenance already spends ~30 of an invocation's 50 D1

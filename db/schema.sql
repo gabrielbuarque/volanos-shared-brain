@@ -15,7 +15,13 @@ CREATE TABLE IF NOT EXISTS entries (
   actor_id         TEXT NOT NULL DEFAULT '',     -- user who wrote it ('' = the owner, pre-team writes)
   clearance_level  INTEGER NOT NULL DEFAULT 12,  -- P0 restricted leadership -> P12 broad company access
   directory_id     TEXT,                         -- optional brain_directories resource boundary
-  source_path      TEXT                          -- relative source path for bulk/external ingest
+  source_path      TEXT,                         -- relative source path for bulk/external ingest
+  access_count     INTEGER NOT NULL DEFAULT 0,   -- times opened, cited in an answer or reached by a link (usage ranking)
+  last_accessed_at INTEGER,                      -- last of those, Unix ms (NULL = never since the column shipped)
+  version          INTEGER NOT NULL DEFAULT 1,   -- bumps on every content change; older text lives in entry_versions
+  superseded_by    TEXT,                         -- id of the memory that replaced this one (manual merge)
+  archived_at      INTEGER,                      -- set when archived; the row and its history stay recoverable
+  compacted_at     INTEGER                       -- set when the content is the extractive summary of a cold note
   -- Runtime ALTER columns (see src/db/init.ts): updated_at, staleness_checked_at
 );
 
@@ -117,6 +123,74 @@ CREATE TABLE IF NOT EXISTS brain_directory_grants (
 CREATE INDEX IF NOT EXISTS idx_brain_directory_grants_user
   ON brain_directory_grants(user_id, directory_id);
 
+-- Shared Brain pilot: ingest classification, approval queue, document tree, invites.
+CREATE TABLE IF NOT EXISTS entry_classification (
+  entry_id   TEXT PRIMARY KEY,
+  doc_id     TEXT NOT NULL,
+  node_id    TEXT NOT NULL,
+  ord        INTEGER NOT NULL DEFAULT 0,
+  jev_level  INTEGER,
+  confidence REAL,
+  top3       TEXT NOT NULL DEFAULT '[]',
+  review     INTEGER NOT NULL DEFAULT 0,
+  model      TEXT NOT NULL DEFAULT '',
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_entry_classification_doc ON entry_classification(doc_id, node_id, ord);
+CREATE INDEX IF NOT EXISTS idx_entry_classification_review ON entry_classification(review, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS doc_nodes (
+  doc_id       TEXT NOT NULL,
+  node_id      TEXT NOT NULL,
+  workspace_id TEXT NOT NULL,
+  parent_id    TEXT,
+  title        TEXT NOT NULL,
+  path         TEXT NOT NULL,
+  ord          INTEGER NOT NULL DEFAULT 0,
+  source_path  TEXT,
+  created_at   INTEGER NOT NULL,
+  PRIMARY KEY(doc_id, node_id)
+);
+CREATE INDEX IF NOT EXISTS idx_doc_nodes_workspace ON doc_nodes(workspace_id, doc_id);
+
+CREATE TABLE IF NOT EXISTS contributions (
+  id             TEXT PRIMARY KEY,
+  workspace_id   TEXT NOT NULL,
+  submitter_id   TEXT NOT NULL,
+  doc_id         TEXT NOT NULL,
+  node_id        TEXT NOT NULL,
+  ord            INTEGER NOT NULL DEFAULT 0,
+  source         TEXT NOT NULL DEFAULT '',
+  source_path    TEXT,
+  content        TEXT NOT NULL,
+  suggested_level INTEGER NOT NULL,
+  confidence     REAL,
+  top3           TEXT NOT NULL DEFAULT '[]',
+  reason         TEXT NOT NULL DEFAULT '',
+  status         TEXT NOT NULL DEFAULT 'pending',
+  resolved_by    TEXT,
+  resolved_at    INTEGER,
+  final_level    INTEGER,
+  entry_id       TEXT,
+  created_at     INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_contributions_queue ON contributions(status, suggested_level, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS member_invites (
+  id              TEXT PRIMARY KEY,
+  email           TEXT NOT NULL,
+  role            TEXT NOT NULL DEFAULT 'member',
+  clearance_floor INTEGER NOT NULL DEFAULT 12,
+  token_hash      TEXT NOT NULL,
+  invited_by      TEXT NOT NULL,
+  created_at      INTEGER NOT NULL,
+  expires_at      INTEGER NOT NULL,
+  accepted_at     INTEGER,
+  cancelled_at    INTEGER
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_member_invites_token ON member_invites(token_hash);
+CREATE INDEX IF NOT EXISTS idx_member_invites_email ON member_invites(email);
+
 -- Authoritative version for each workspace's Prompt Capsule. The full Capsule
 -- body is cached in eventually-consistent KV, but this revision is read from D1
 -- before every lookup so an old KV payload can never cross an edit, delete,
@@ -184,6 +258,8 @@ CREATE TABLE IF NOT EXISTS users (
   removed_at    INTEGER,                            -- soft offboarding, NULL/0 = active member
   last_used_at  INTEGER                             -- last successful identity resolution (throttled; NULL = never seen since the column shipped)
   ,clearance_floor INTEGER NOT NULL DEFAULT 12      -- member's lowest readable clearance; admin is unrestricted
+  ,direct_publish INTEGER NOT NULL DEFAULT 0        -- skips the approval queue for review-only chunks
+  ,approval_status TEXT NOT NULL DEFAULT 'active'   -- active | pending (self-signup awaiting an admin)
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_token_hash ON users(token_hash);
@@ -255,3 +331,61 @@ INSERT INTO maintenance_cursor (id, workspace_id, advanced_at) VALUES (1, '', 0)
 -- Capsule-only index: missing project ids never scan ordinary memories.
 CREATE INDEX IF NOT EXISTS idx_entries_capsule ON entries(workspace_id, id)
 WHERE instr(lower(tags), '"capsule:') > 0;
+
+-- Per-person browser sessions from Google login. The machine bearer token in users.token_hash is untouched.
+CREATE TABLE IF NOT EXISTS member_sessions (
+  token_hash TEXT PRIMARY KEY,
+  user_id    TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_member_sessions_user ON member_sessions(user_id);
+
+-- History. Nothing is deleted when memories are merged, compacted or archived: the
+-- text being replaced is copied here first, so restore can bring any version back.
+CREATE TABLE IF NOT EXISTS entry_versions (
+  id              TEXT PRIMARY KEY,
+  entry_id        TEXT NOT NULL,
+  version         INTEGER NOT NULL,
+  content         TEXT NOT NULL,
+  tags            TEXT NOT NULL DEFAULT '[]',
+  clearance_level INTEGER NOT NULL DEFAULT 12,
+  directory_id    TEXT,
+  source_path     TEXT,
+  actor_id        TEXT NOT NULL DEFAULT '',      -- who caused the change; system:<job> for automatic ones
+  reason          TEXT NOT NULL DEFAULT '',      -- merge-superseded | compact | archive | restore | edit
+  created_at      INTEGER NOT NULL,
+  UNIQUE(entry_id, version)
+);
+CREATE INDEX IF NOT EXISTS idx_entry_versions_entry ON entry_versions(entry_id, version DESC);
+
+-- Memory-aging findings that wait for a person: near-duplicates and contradictions.
+CREATE TABLE IF NOT EXISTS aging_suggestions (
+  id           TEXT PRIMARY KEY,
+  kind         TEXT NOT NULL,                    -- duplicate | contradiction
+  workspace_id TEXT NOT NULL DEFAULT '',
+  a_id         TEXT NOT NULL,
+  b_id         TEXT NOT NULL,
+  score        REAL NOT NULL DEFAULT 0,
+  detail       TEXT NOT NULL DEFAULT '{}',       -- JSON: similarity, diverging values, why this owner
+  owner_id     TEXT NOT NULL DEFAULT '',         -- who decides: the canonical's author, else the older memory's author
+  status       TEXT NOT NULL DEFAULT 'open',     -- open | resolved | dismissed
+  resolution   TEXT NOT NULL DEFAULT '',
+  resolved_by  TEXT NOT NULL DEFAULT '',
+  resolved_at  INTEGER,
+  created_at   INTEGER NOT NULL,
+  UNIQUE(kind, a_id, b_id)
+);
+CREATE INDEX IF NOT EXISTS idx_aging_suggestions_queue ON aging_suggestions(status, kind, created_at DESC);
+
+-- One row per background job run (export, aging passes), for the memory-health tab.
+CREATE TABLE IF NOT EXISTS job_runs (
+  id          TEXT PRIMARY KEY,
+  job         TEXT NOT NULL,
+  actor_id    TEXT NOT NULL DEFAULT '',
+  started_at  INTEGER NOT NULL,
+  finished_at INTEGER NOT NULL,
+  ok          INTEGER NOT NULL DEFAULT 1,
+  summary     TEXT NOT NULL DEFAULT '{}'
+);
+CREATE INDEX IF NOT EXISTS idx_job_runs_recent ON job_runs(started_at DESC);

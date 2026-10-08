@@ -1,7 +1,7 @@
 import type { Env } from "../env";
 import { DEFAULTS, type Config } from "../config";
 import { CLASSIFY_MAX_TOKENS, LLM_MODEL } from "../constants";
-import { readStreamText } from "../lib/ai";
+import { chatText } from "../llm/provider";
 import { withKind, type MemoryKind } from "../memory/kind";
 import { hasCapsuleTag } from "../tags/system";
 import { getStatus, withStatus } from "../memory/status";
@@ -39,19 +39,14 @@ function parseClassification(text: string): { importance: number; canonical: boo
 export async function classifyEntry(content: string, env: Env, config: Readonly<Config> = DEFAULTS): Promise<{ importance: number; canonical: boolean; kind: MemoryKind | null }> {
   let text: string;
   try {
-    const stream = await env.AI.run(config.LLM_MODEL as any, {
-      messages: [{ role: "user", content:
+    text = await chatText(env, config, [{ role: "user", content:
         `Classify this memory. Respond with ONLY one JSON object and nothing else — no prose, no markdown, no code fences.\n` +
         `{"importance": <1-5>, "canonical": <true|false>, "kind": "episodic"|"semantic"}\n` +
         `importance: 1=trivial, 3=useful context, 5=critical decision or goal.\n` +
         `canonical: true ONLY for a confirmed decision, durable fact, or stated permanent preference that should be authoritative (be conservative; false for anything tentative, one-off, or event-like).\n` +
         `kind: "episodic" for a specific event/decision/milestone that happened at a point in time; "semantic" for a general fact, preference, or piece of knowledge.\n\n` +
         `Memory: ${content.slice(0, 500)}`,
-      }],
-      max_tokens: CLASSIFY_MAX_TOKENS,
-      stream: true,
-    });
-    text = await readStreamText(stream as ReadableStream);
+    }], { maxTokens: CLASSIFY_MAX_TOKENS });
   } catch {
     return { importance: 0, canonical: false, kind: null };
   }

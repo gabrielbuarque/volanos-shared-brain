@@ -19,8 +19,10 @@ export function workspaceFilter(
 }
 
 /** Single-workspace variant for write-path checks (dedupe within the target). */
-export function singleWorkspaceFilter(workspaceId: string): VectorizeWorkspaceFilter {
-  return { filter: { workspace_id: { $in: [workspaceId] } } };
+export function singleWorkspaceFilter(workspaceId: string, clearanceFloor?: number): VectorizeWorkspaceFilter {
+  const filter: VectorizeWorkspaceFilter["filter"] = { workspace_id: { $in: [workspaceId] } };
+  if (clearanceFloor !== undefined) filter.clearance_level = { $gte: Math.max(0, Math.min(12, clearanceFloor)) };
+  return { filter };
 }
 
 type Queryable = {
@@ -29,6 +31,9 @@ type Queryable = {
 
 /** Query with filtering, falling back when the index rejects the filter. */
 let workspaceFiltersSupported: boolean | null = null;
+
+/** Largest topK Vectorize accepts together with returnValues + metadata. */
+export const DEGRADED_TOP_K = 50;
 
 // Counts unfiltered queries for the health signal.
 let degradedQueryCount = 0;
@@ -52,12 +57,15 @@ export function resetVectorizeFilterState(): void {
 export async function queryVectorizeScoped<M = unknown>(
   vectorize: Queryable,
   values: number[],
-  opts: { topK: number; filter: VectorizeWorkspaceFilter["filter"]; onDegrade?: () => void },
+  opts: { topK: number; filter: VectorizeWorkspaceFilter["filter"]; onDegrade?: () => void; degradedTopK?: number },
 ): Promise<{ matches: M[]; degraded: boolean }> {
   const unfiltered = async (): Promise<{ matches: M[]; degraded: boolean }> => {
     degradedQueryCount++;
+    // Without the metadata filter forbidden vectors compete for the same slots, so
+    // ask for as many as the index allows: D1 hydration drops what the caller may
+    // not read, and the headroom is what keeps recall from collapsing.
     const result = await vectorize.query(values, {
-      topK: opts.topK,
+      topK: Math.max(opts.topK, opts.degradedTopK ?? DEGRADED_TOP_K),
       returnMetadata: "all",
       returnValues: true,
     });

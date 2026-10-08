@@ -69,13 +69,13 @@ class SqliteStatement {
    * Additive for writes: `meta.rows_written` is unchanged, and `results` is
    * simply absent where there are no rows to report.
    */
-  async run(): Promise<{ results?: unknown[]; success: true; meta: { rows_written: number } }> {
+  async run(): Promise<{ results?: unknown[]; success: true; meta: { rows_written: number; changes?: number } }> {
     const statement = this.db.prepare(this.sql);
     if (/^\s*(SELECT|WITH)\b/i.test(this.sql)) {
       return { results: statement.all(...(this.args as never[])), success: true, meta: { rows_written: 0 } };
     }
     const result = statement.run(...(this.args as never[]));
-    return { success: true, meta: { rows_written: Number(result.changes) } };
+    return { success: true, meta: { rows_written: Number(result.changes), changes: Number(result.changes) } };
   }
 }
 

@@ -1,7 +1,7 @@
 import type { Env } from "../env";
 import { DEFAULTS, type Config } from "../config";
 import { LLM_MODEL, INSIGHT_MAX_TOKENS } from "../constants";
-import { readStreamText } from "../lib/ai";
+import { chatText } from "../llm/provider";
 
 export async function synthesizeInsight(
   query: string,
@@ -31,12 +31,7 @@ Write a brief insight (2-4 sentences).`;
 
   let insight = "";
   try {
-    const stream = await (env.AI as any).run(config.LLM_MODEL as any, {
-      messages: [{ role: "user", content: prompt }],
-      max_tokens: INSIGHT_MAX_TOKENS,
-      stream: true,
-    });
-    insight = await readStreamText(stream as ReadableStream);
+    insight = await chatText(env, config, [{ role: "user", content: prompt }], { maxTokens: INSIGHT_MAX_TOKENS });
   } catch (e) {
     console.error("synthesizeInsight LLM call failed (non-fatal):", e);
   }

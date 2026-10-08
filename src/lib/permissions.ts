@@ -31,15 +31,38 @@ export function canReadClearance(identity: Identity, level: unknown): boolean {
   return clearance !== null && (identity.role === "admin" || clearance >= identityClearanceFloor(identity));
 }
 
+/**
+ * What the permission predicate needs to know about whoever is reading. A plain
+ * value so that write paths (which carry a WriteContext, not an Identity) can
+ * apply the very same predicate when they look at existing rows.
+ */
+export interface Reader {
+  userId: string;
+  admin: boolean;
+  /** Lowest level (most restricted) this reader may read. Ignored for admins. */
+  floor: number;
+}
+
+export function readerOf(identity: Identity): Reader {
+  return { userId: identity.userId, admin: identity.role === "admin", floor: identityClearanceFloor(identity) };
+}
+
 /** SQL predicate for an entries row. It is intentionally used by scope.ts so
  * every route that already applies workspace scope also applies permissions. */
 export function entryPermissionClause(identity: Identity, alias = ""): { clause: string; bindings: (string | number)[] } {
-  if (identity.role === "admin") return { clause: "", bindings: [] };
+  return readerPermissionClause(readerOf(identity), alias);
+}
+
+export function readerPermissionClause(reader: Reader, alias = ""): { clause: string; bindings: (string | number)[] } {
+  if (reader.admin) return { clause: "", bindings: [] };
   const p = alias ? `${alias}.` : "";
-  const dir = `${p}directory_id`;
+  // Qualified even without an alias: inside the subqueries a bare `directory_id`
+  // resolves to the grants table's own column, which turns the comparison into a
+  // tautology and silently breaks the ACL once the grants table has any row.
+  const dir = `${alias ? `${alias}.` : "entries."}directory_id`;
   return {
     clause: `${p}clearance_level >= ? AND (${dir} IS NULL OR NOT EXISTS (SELECT 1 FROM brain_directory_grants _dg0 WHERE _dg0.directory_id = ${dir}) OR EXISTS (SELECT 1 FROM brain_directory_grants _dg1 WHERE _dg1.directory_id = ${dir} AND _dg1.user_id = ? AND _dg1.can_read = 1))`,
-    bindings: [identityClearanceFloor(identity), identity.userId],
+    bindings: [reader.floor, reader.userId],
   };
 }
 

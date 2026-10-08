@@ -39,6 +39,8 @@ export interface RecallSearchResult {
   // memory has to be shortened for the response.
   queryTokens?: string[];
   compoundStale?: CompoundStaleSignal;
+  /** What the reranker did for this answer (absent when it was off or the search ended early). */
+  rerank?: import("./reranker").RerankInfo;
 }
 
 export interface RecallDiagnostics {
@@ -63,7 +65,7 @@ export interface RecallDiagnostics {
 }
 
 export type RecallStage = "setup" | "querySignals" | "candidateGeneration" | "candidateHydration"
-  | "graphExpansion" | "finalHydration" | "selection" | "synthesis" | "total";
+  | "graphExpansion" | "finalHydration" | "rerank" | "selection" | "synthesis" | "total";
 
 export interface RecallOperationDiagnostics {
   aiCalls: number;

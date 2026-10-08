@@ -56,7 +56,7 @@ import type { Env } from "../../src/env";
  * caller's rebuild issues (one statement covering every stale workspace, so the
  * rows-read budget is the same either way).
  */
-const TAG_SCAN = /SELECT DISTINCT (?:workspace_id, )?value FROM entries, json_each/;
+const TAG_SCAN = /SELECT DISTINCT (?:workspace_id, )?value(?:, CASE[^]*? AS lvl)? FROM entries, json_each/;
 
 let sqlite: SqliteD1 | null = null;
 afterEach(() => { sqlite?.close(); sqlite = null; });

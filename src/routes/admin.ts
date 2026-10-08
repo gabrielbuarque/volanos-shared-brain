@@ -490,7 +490,7 @@ export async function handleAdminRoutes(
     if (limit instanceof Response) return limit;
     const offset = intParam(url, "offset", { fallback: 0, min: 0 });
     if (offset instanceof Response) return offset;
-    const scope = scopeWhere(auth);
+    const scope = scopeWhere(auth, undefined, "m.workspace_id");
     // ONE compound statement, not two selects merged in JavaScript. Paging is
     // the reason: LIMIT/OFFSET over a merged list is only correct if the merge
     // happens before the window, and two independently-paged selects stitched
@@ -523,7 +523,7 @@ export async function handleAdminRoutes(
        SELECT 'entry', ev.id, ev.event, ev.actor_id, '', ev.entry_id,
               substr(m.content, 1, 160), ev.payload, ev.created_at
          FROM entry_events ev
-         JOIN entries m ON m.id = ev.entry_id AND m.${scope.clause}
+         JOIN entries m ON m.id = ev.entry_id AND ${scope.clause}
         WHERE ev.event IN ('shared', 'unshared', 'insight_confirmed', 'insight_dismissed')
        ORDER BY created_at DESC, event_id DESC
        LIMIT ? OFFSET ?`,
@@ -805,10 +805,23 @@ export async function handleAdminRoutes(
     // written.
     const latchedAtRaw = await env.OAUTH_KV.get(VECTORIZE_WORKSPACE_FILTER_UNSUPPORTED_KV_KEY).catch(() => null);
     const latchedAt = latchedAtRaw ? Number(latchedAtRaw) : null;
+    // The permission filter rides on the same Vectorize metadata filter
+    // (workspace_id + clearance_level). When it is rejected, reads still honour every
+    // level (D1 hydration is scoped in SQL), but forbidden vectors compete for the
+    // top-K and recall quality drops. Surfaced as an alert so it is fixed, not guessed.
+    const alerts: { code: string; severity: "warning"; message: string }[] = [];
+    if (supported === false || latchedAt) {
+      alerts.push({
+        code: "vectorize_filter_degraded",
+        severity: "warning",
+        message: "Vectorize rejected the workspace_id/clearance_level filter. Searches run unfiltered with a wider top-K and are permission-filtered in D1 afterwards: no restricted text is returned, but recall quality is reduced. Run: npm run vectors:indexes, then re-embed so existing vectors carry the indexed metadata.",
+      });
+    }
     return json({
       ok: vectorize.ok,
       version: SB_VERSION,
       vectorize: { ...vectorize, workspaceFilter: { supported, degradedQueries, latchedAt } },
+      alerts,
       team,
     });
   }
@@ -893,11 +906,11 @@ export async function handleAdminRoutes(
       // alias baked in, so the alias is visible in the template itself: that is
       // what lets scripts/check-scope.mjs attribute the clause to `m` instead of
       // counting it against whichever table reference it reaches first.
-      const mScope = scopeWhere(auth);
+      const mScope = scopeWhere(auth, undefined, "m.workspace_id");
       // scope-outer-join: the edges alias e is pinned by source_id IN (the scoped insight page above), so every row here already belongs to the caller; the entries alias m is reached by a LEFT JOIN and its clause is in the ON, which nulls a column rather than dropping a row. That is sufficient HERE and only here, because m contributes exactly one column: `content`. The row itself, and the `id` beside it, come from `e.target_id` — an edge of the caller's own insight — so an unreadable source renders as { missing: true }, which is what a source DELETED after the edge was written renders as, and what GET /entry answers for that id. A WHERE predicate would drop those rows and take the "missing" signal with them
       const sourceRows = (await env.DB.prepare(
         `SELECT e.source_id AS insight_id, e.target_id AS id, m.content AS content
-         FROM edges e LEFT JOIN entries m ON m.id = e.target_id AND m.${mScope.clause}
+         FROM edges e LEFT JOIN entries m ON m.id = e.target_id AND ${mScope.clause}
          WHERE e.type = 'drawn_from' AND e.source_id IN (${pageIds.map(() => "?").join(",")})`,
       ).bind(...mScope.bindings, ...pageIds).all()).results as Record<string, any>[];
       for (const r of sourceRows) {

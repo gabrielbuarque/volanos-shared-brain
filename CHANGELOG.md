@@ -2,6 +2,16 @@
 
 All notable changes to Second Brain are documented here. Version numbers match `SB_VERSION` in `src/env.ts` and the desktop app release.
 
+## [Unreleased] — Volanos memory improvements
+
+Four improvements inspired by ai-memory; summary, files and switches in `docs/volanos/melhorias-ai-memory.md`.
+
+- **Permission audit** (`docs/volanos/permission-audit.md`): digests and insights are stored at the most restricted level of their sources; duplicate detection on write only compares with what the writer can read; the directory ACL no longer degrades into a tautology; recall applies the clearance filter before the top-K cut; a single read helper (`scopedEntriesQuery`) with a ratchet test; `/health` alerts when the Vectorize filter degrades.
+- **Jev reranker** (`RERANKER=jev|bge|off`, default off): one grading call over up to 30 readable candidates; never fails a search; `/recall` reports `reranked` and its latency.
+- **Usage ranking** (always on, can only add): `access_count` / `last_accessed_at`, half-life 180 days for decisions and 45 for meeting notes.
+- **Markdown export** to a private GitHub repository, daily at 06:30 UTC and on demand, with `POST /admin/rebuild-from-export`. The repository holds P0.
+- **Memory aging without an LLM** (all off by default): near-duplicate merge suggestions, contradiction alerts with the PRD precedence, extractive compaction of cold notes with `restore`; new "Saúde da memória" admin tab. Adds `entry_versions`, `aging_suggestions`, `job_runs` and six `entries` columns, migrated automatically.
+
 ## [3.1.0] — Prompt Capsules
 
 Contributed by @oudouusa.

@@ -32,10 +32,15 @@ function extractChatChunkText(d) {
   return typeof content === 'string' ? content : ''
 }
 
+/** Last sb_meta seen on the /chat stream; read once the stream ends. */
+let volChatMeta = null
+
 function consumeChatSseLine(line, onText) {
   if (!line.startsWith('data: ') || line.includes('[DONE]')) return
   try {
     const d = JSON.parse(line.slice(6))
+    // First event of /chat names the model that answered (server: streamWithMeta).
+    if (d && d.sb_meta) { if (typeof volChatMeta !== 'undefined') volChatMeta = d.sb_meta; return }
     const text = extractChatChunkText(d)
     if (text) onText(text)
   } catch (e) {
@@ -151,9 +156,14 @@ async function sendRecall(retryQuery) {
       const res = await fetch(`${WORKER_URL}/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${AUTH_TOKEN}` },
-        body: JSON.stringify({ query, memories }),
+        body: JSON.stringify({ query, memories, ...(typeof volChatExtras === 'function' ? volChatExtras(data.results) : {}) }),
       })
 
+      if (!res.ok) {
+        const failure = await res.json().catch(() => ({}))
+        throw new Error(failure.error || 'chat failed')
+      }
+      volChatMeta = null
       const reader = res.body.getReader()
       const decoder = new TextDecoder()
       let fullText = ''
@@ -181,6 +191,7 @@ async function sendRecall(retryQuery) {
 
       // Render markdown once the stream is complete (kept plain while streaming for speed)
       answerEl.innerHTML = renderAnswerMarkdown(fullText)
+      if (typeof volShowAnsweredBy === 'function') volShowAnsweredBy(volChatMeta, answerEl)
 
       // 2. Sources toggle
       const sourcesToggle = document.createElement('div')

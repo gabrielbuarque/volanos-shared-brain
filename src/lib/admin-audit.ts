@@ -23,7 +23,19 @@ export type AdminEventName =
   | "integration_disconnected"
   | "member_clearance_set"
   | "directory_created"
-  | "directory_grant_set";
+  | "directory_grant_set"
+  | "contribution_approved"
+  | "contribution_rejected"
+  | "levels_edited"
+  | "member_invited"
+  | "member_invite_cancelled"
+  | "member_joined"
+  | "member_approved"
+  | "member_direct_publish_set"
+  | "export_run"
+  | "rebuild_from_export"
+  | "aging_job_run"
+  | "aging_suggestion_resolved";
 
 export function adminAuditEvent(
   env: Env,

@@ -2,6 +2,7 @@ import { CHUNK_OVERLAP_CHARS } from "../constants";
 import { getStatus } from "../memory/status";
 import { getVolatility } from "../memory/volatility";
 import { DEFAULTS, type Config } from "../config";
+import { usageBonus, type UsageSignal } from "../memory/usage";
 
 export interface VectorizeMatch {
   id: string;
@@ -12,6 +13,8 @@ export interface VectorizeMatch {
 
 export interface RerankOptions {
   useRecallFrequency?: boolean;
+  /** Per-memory usage, keyed by parent id. Absent = no usage bonus (every pre-3a caller). */
+  usage?: ReadonlyMap<string, UsageSignal>;
 }
 
 // Recency-decay floors: the minimum fraction of its semantic relevance a memory
@@ -110,7 +113,11 @@ export function rerankWithTimeDecay(
       const overlap = queryTags.length ? tags.filter(t => queryTags.includes(t)).length : 0;
       const tagBoost = overlap ? Math.min(config.TAG_BOOST_MAX, 1 + overlap * config.TAG_BOOST_STEP) : 1.0;
 
-      return { ...match, score: match.score * combinedMultiplier * appendPenalty * rolledUpPenalty * importanceMultiplier * tagBoost };
+      // Usage can only add: 1 + bonus with bonus >= 0.
+      const usageSignal = options.usage?.get(parentId);
+      const usageMultiplier = usageSignal ? 1 + usageBonus({ ...usageSignal, tags }, config, now) : 1;
+
+      return { ...match, score: match.score * combinedMultiplier * appendPenalty * rolledUpPenalty * importanceMultiplier * tagBoost * usageMultiplier };
     })
     .sort((a, b) => b.score - a.score);
 }

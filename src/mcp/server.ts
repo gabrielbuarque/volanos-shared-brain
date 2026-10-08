@@ -14,6 +14,8 @@ import { createEdge, deleteEdge, edgeLabel, isValidEdgeType, kindMismatchMessage
 import { EDGE_TYPES } from "../graph/types";
 import { getConnections } from "../graph/traverse";
 import type { Identity } from "../lib/identity";
+import { readerOf } from "../lib/permissions";
+import { recordAccessAfterResponse } from "../memory/usage";
 import { assertCanEditContent, assertCanMutateEntry, getReadableEntry } from "../lib/entry-access";
 import { listTeamWorkspaces } from "../lib/team-admin";
 import { layerOf, scopeWhereForRead, scopeWrite, effectiveWriteTarget, readTeamParam, primaryCompanyWorkspaceId, type WriteContext } from "../lib/scope";
@@ -207,7 +209,7 @@ export function buildMcpServer(env: Env, ctx: ExecutionContext, identity?: Ident
   // been taught tenancy yet) every write below lands in the legacy owner space
   // and every read stays corpus-wide — byte-identical to pre-v3 behaviour.
   const writeCtx: WriteContext = identity
-    ? { workspaceId: scopeWrite(identity), actorId: identity.userId }
+    ? { workspaceId: scopeWrite(identity), actorId: identity.userId, reader: readerOf(identity) }
     : { workspaceId: "", actorId: "" };
 
   // ── list_teams ──────────────────────────────────────────────────────────
@@ -267,6 +269,7 @@ export function buildMcpServer(env: Env, ctx: ExecutionContext, identity?: Ident
         targetCtx = {
           workspaceId: scopeWrite(identity, resolvedTarget, teamRead.teamId),
           actorId: identity.userId,
+          reader: readerOf(identity),
         };
       }
       const result = await captureEntry(content, withVerdict, source ?? "claude", env, ctx, undefined, targetCtx);
@@ -707,6 +710,7 @@ export function buildMcpServer(env: Env, ctx: ExecutionContext, identity?: Ident
         return { content: [{ type: "text", text: `No entry found with ID: ${id}` }] };
       }
       const tags: string[] = JSON.parse(row.tags ?? "[]");
+      recordAccessAfterResponse(env, ctx, [row.id as string]);
       // get is the tool an agent calls before acting on a memory, so it is the
       // one that can least afford to omit "this is shared, and someone else
       // wrote it".

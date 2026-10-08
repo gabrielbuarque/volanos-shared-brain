@@ -68,6 +68,14 @@ const IDENTITY_SQL =
   ` WHERE u.token_hash = ? AND u.suspended = 0 AND (u.removed_at IS NULL OR u.removed_at = 0)` +
   ` GROUP BY u.id`;
 
+const SESSION_IDENTITY_SQL =
+  `SELECT u.id AS userId, u.role AS role, u.default_share AS defaultShare, u.clearance_floor AS clearanceFloor,` +
+  ` p.id AS personalWorkspaceId, ${COMPANY_WORKSPACES_SELECT}` +
+  IDENTITY_FROM +
+  ` JOIN member_sessions s ON s.user_id = u.id` +
+  ` WHERE s.token_hash = ? AND s.expires_at > ? AND u.suspended = 0 AND (u.removed_at IS NULL OR u.removed_at = 0)` +
+  ` GROUP BY u.id`;
+
 /** Maximum age before the informational last-used timestamp is refreshed. */
 export const LAST_USED_THROTTLE_MS = 3_600_000;
 
@@ -134,6 +142,11 @@ async function ensureIdentityReady(env: Env): Promise<void> {
   await ensureTenantBootstrap(env);
 }
 
+async function resolveSession(env: Env, tokenHash: string, now: number): Promise<Identity | null> {
+  const row = await env.DB.prepare(SESSION_IDENTITY_SQL).bind(tokenHash, now).first<IdentityRow>();
+  return row ? rowToIdentity(row) : null;
+}
+
 /** Resolve identity from a bearer token string (no Request wrapper). */
 export async function resolveIdentityFromToken(token: string, env: Env): Promise<Identity | null> {
   if (!token) return null;
@@ -147,7 +160,9 @@ export async function resolveIdentityFromToken(token: string, env: Env): Promise
       env.DB.prepare(LAST_USED_UPDATE_SQL).bind(now, tokenHash, now, LAST_USED_THROTTLE_MS),
     ]);
     const row = read?.results?.[0];
-    return row ? rowToIdentity(row) : null;
+    if (row) return rowToIdentity(row);
+    // Not a machine token: it may be a person's browser session from Google login.
+    return await resolveSession(env, tokenHash, now);
   } catch (e) {
     // A last-used write must not make authentication fail; retry the read alone.
     console.error("identity batch failed, retrying the read alone (non-fatal):", e);

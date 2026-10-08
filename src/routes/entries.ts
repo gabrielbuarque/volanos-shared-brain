@@ -12,6 +12,7 @@ import { moveEntry, restampVectorWorkspace, type ShareTarget } from "../capture/
 import { auditEvent } from "../lib/audit";
 import { STATUS_VALUES, type MemoryStatus } from "../memory/status";
 import { getTagVocabulary } from "../tags/vocabulary";
+import { recordAccessAfterResponse } from "../memory/usage";
 
 export async function handleEntriesRoutes(
   request: Request,
@@ -56,9 +57,15 @@ export async function handleEntriesRoutes(
     const { results: entryRows } = await env.DB.prepare(
       `SELECT id, content, tags, source, created_at, COALESCE(updated_at, created_at) AS last_updated, recall_count, importance_score, contradiction_wins, contradiction_losses, clearance_level, directory_id, source_path FROM entries WHERE ${scope.clause} ORDER BY created_at DESC`
     ).bind(...scope.bindings).all() as { results: Record<string, any>[] };
-    const { results: edgeRows } = await env.DB.prepare(
+    const { results: workspaceEdgeRows } = await env.DB.prepare(
       `SELECT source_id, target_id, type, weight, provenance, created_at FROM edges WHERE ${edgeScope.clause}`
     ).bind(...edgeScope.bindings).all() as { results: Record<string, any>[] };
+    // The edge scope is workspace-only; clearance lives on the entries. An edge is
+    // part of the backup only when BOTH endpoints are in the readable set above,
+    // otherwise the file would name the ids (and the shape) of memories the caller
+    // may not read.
+    const exportedIds = new Set(entryRows.map(r => r.id as string));
+    const edgeRows = workspaceEdgeRows.filter(r => exportedIds.has(r.source_id as string) && exportedIds.has(r.target_id as string));
 
     // vector_ids are deliberately excluded — they're deployment-specific and an
     // import tool re-embeds anyway. Tags are parsed so the file holds real arrays.
@@ -185,6 +192,8 @@ export async function handleEntriesRoutes(
        FROM entries WHERE id = ? AND ${scope.clause}`
     ).bind(id, ...scope.bindings).first() as Record<string, any> | null;
     if (!row) return json({ ok: false, error: `No entry found with ID: ${id}` }, 404);
+    // Opening a memory counts as use (ranking bonus); after the response.
+    recordAccessAfterResponse(env, ctx, [id]);
 
     let vectorIds: unknown[] = [];
     try { vectorIds = JSON.parse(row.vector_ids ?? "[]"); } catch { vectorIds = []; }

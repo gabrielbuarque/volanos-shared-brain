@@ -82,7 +82,7 @@ describe("config rule coverage", () => {
     for (const [key, rule] of Object.entries(RULES)) {
       const v = (DEFAULTS as Record<string, unknown>)[key];
       if (rule.kind === "string") {
-        if (typeof v !== "string" || !v.trim()) violations.push(`${key}: not a non-empty string`);
+        if (typeof v !== "string" || (!v.trim() && !rule.allowEmpty)) violations.push(`${key}: not a non-empty string`);
         continue;
       }
       if (typeof v !== "number" || !Number.isFinite(v)) { violations.push(`${key}: not finite`); continue; }

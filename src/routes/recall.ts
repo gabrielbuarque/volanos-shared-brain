@@ -1,16 +1,32 @@
 import type { Env } from "../env";
 import { resolveConfig } from "../config";
 import { LLM_MODEL, VECTORIZE_FIX_HINT } from "../constants";
+import { chat, listModels, streamWithMeta } from "../llm/provider";
 import { buildEntryFilterQuery } from "../capture/entry";
 import { compressTag } from "../compression/digest";
 import { CORS_HEADERS, intParam, json, readWorkspaceParam, readTeamQueryParam } from "../lib/http";
 import { requireIdentity, type Identity } from "../lib/identity";
 import { assertCanMutateEntry } from "../lib/entry-access";
+import { readerOf } from "../lib/permissions";
 import { layerOf, scopeWhereForRead, readScopeWorkspaces } from "../lib/scope";
+import { hydrateScopedEntries } from "../lib/scoped-entries";
+import { recordAccessAfterResponse } from "../memory/usage";
 import { lookupActorLabels, resolveActorFilter, resolveActorLabel } from "../lib/actors";
 import { KIND_VALUES, type MemoryKind } from "../memory/kind";
 import { recallEntries } from "../recall/search";
+import type { RerankInfo } from "../recall/reranker";
 import { allowanceFor, snippetOf } from "../recall/snippet";
+
+/**
+ * What /recall says about the reranker: whether it reordered this answer, and how
+ * long it took. `reranker` is null when no mode is configured.
+ */
+function rerankFields(rerank: RerankInfo | undefined) {
+  return {
+    reranked: rerank?.ran ?? false,
+    reranker: rerank ? { mode: rerank.mode, ms: rerank.ms, candidates: rerank.candidates, degraded: rerank.degraded ?? null } : null,
+  };
+}
 
 /** Add the caller's workspace predicate before ORDER BY and LIMIT. */
 function scopeEntryFilterQuery(
@@ -133,12 +149,13 @@ export async function handleRecallRoutes(
     const full = ["1", "true", "yes"].includes((url.searchParams.get("full") ?? "").toLowerCase());
 
     const cfg = await resolveConfig(env);
-    const { matches, insight, semanticUnavailable, queryUsed, queryTokens, compoundStale } = await recallEntries({ query, topK, tag, after, before, kind, hops }, env, ctx, cfg, { identity, workspaceFilter: workspace, teamId: team });
+    const { matches, insight, semanticUnavailable, queryUsed, queryTokens, compoundStale, rerank } = await recallEntries({ query, topK, tag, after, before, kind, hops }, env, ctx, cfg, { identity, workspaceFilter: workspace, teamId: team });
 
     if (!matches.length) {
       return json({
         ok: true,
         results: [],
+        ...rerankFields(rerank),
         query_used: queryUsed,
         semantic_unavailable: semanticUnavailable,
         message: semanticUnavailable
@@ -150,6 +167,7 @@ export async function handleRecallRoutes(
     return json({
       ok: true,
       query_used: queryUsed,
+      ...rerankFields(rerank),
       compound_stale: compoundStale ?? null,
       results: matches.map((m, i) => {
         const s = full
@@ -186,7 +204,7 @@ export async function handleRecallRoutes(
     const auth = await requireIdentity(request, env);
     if (auth instanceof Response) return auth;
 
-    let body: { query?: string; memories?: string };
+    let body: { query?: string; memories?: string; memory_ids?: unknown; provider?: string; model?: string };
     try { body = await request.json(); } catch { return json({ ok: false, error: "Invalid JSON" }, 400); }
     if (!body.query?.trim()) return json({ ok: false, error: "query is required" }, 400);
 
@@ -214,18 +232,44 @@ Be specific and complete. Concision means leaving out filler, never leaving out 
     const userMessage = `Question: ${body.query}\n\nRelevant memories:\n${body.memories}`;
     const cfg = await resolveConfig(env);
 
-    // Workers AI requires `as any` here — the SDK types don't cover all models
-    const stream = await env.AI.run(cfg.LLM_MODEL as any, {
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userMessage }
-      ],
-      stream: true,
-    });
+    // The most restricted memory in the context decides which providers may see
+    // it (src/llm/provider.ts). Without memory_ids the level is unknown, and an
+    // unknown level is treated as restricted.
+    const ids = Array.isArray(body.memory_ids) ? [...new Set(body.memory_ids.filter((x): x is string => typeof x === "string"))].slice(0, 50) : [];
+    let minClearance: number | undefined;
+    if (ids.length) {
+      // Scoped: an id the caller cannot read does not come back, the count falls
+      // short, and the level stays unknown (= restricted). It also stops this route
+      // from being a probe for the level of an arbitrary memory id.
+      const rows = await hydrateScopedEntries<{ id: string; clearance_level: number }>(env, auth, ids, "id, clearance_level");
+      // The memories this answer cites are being used: count them (readable ids only).
+      recordAccessAfterResponse(env, ctx, rows.map(r => r.id));
+      const row = rows.length ? { n: rows.length, m: Math.min(...rows.map(r => Number(r.clearance_level))) } : null;
+      if (row && Number(row.n) === ids.length && row.m !== null) minClearance = Number(row.m);
+    }
 
-    return new Response(stream as ReadableStream, {
-      headers: { "Content-Type": "text/event-stream", ...CORS_HEADERS },
+    let result;
+    try {
+      result = await chat(env, cfg, [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userMessage },
+      ], { provider: body.provider, model: body.model, minClearance });
+    } catch (e) {
+      return json({ ok: false, error: e instanceof Error ? e.message : "LLM unavailable" }, 502);
+    }
+
+    return new Response(streamWithMeta(result), {
+      headers: { "Content-Type": "text/event-stream", "X-LLM-Provider": result.provider, "X-LLM-Model": result.model, ...CORS_HEADERS },
     });
+  }
+
+  // GET /llm/models — picker contents: only providers with a configured secret.
+  if (url.pathname === "/llm/models" && request.method === "GET") {
+    const auth = await requireIdentity(request, env);
+    if (auth instanceof Response) return auth;
+    const cfg = await resolveConfig(env);
+    const models = await listModels(env, cfg);
+    return json({ ok: true, models, default: { provider: cfg.LLM_DEFAULT_PROVIDER, model: cfg.LLM_DEFAULT_MODEL } });
   }
 
   // GET /digest
@@ -242,6 +286,7 @@ Be specific and complete. Concision means leaving out filler, never leaving out 
 
     const result = await compressTag(tag, env, ctx, {
       workspaceIds: readScopeWorkspaces(identity, { layer: workspaceFilter, teamId: team }),
+      reader: readerOf(identity),
     });
 
     if (!result.synthesizedId) {

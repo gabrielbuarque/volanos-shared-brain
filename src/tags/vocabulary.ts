@@ -50,6 +50,7 @@
 import type { Env } from "../env";
 import { scopeWorkspaces } from "../lib/scope";
 import type { Identity } from "../lib/identity";
+import { identityClearanceFloor } from "../lib/permissions";
 
 // Prefixed to coexist with workers-oauth-provider's token:/grant:/client: keys,
 // config:overrides, and the integrations: blobs in the same namespace.
@@ -109,6 +110,40 @@ export const TAG_VOCABULARY_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 interface CachedVocabulary {
   tags: string[];
   rebuiltAt: number;
+  /**
+   * The same tags bucketed by the clearance level of the entry that carries them
+   * ("0".."12"; "acl" for entries inside a directory that has an ACL). A tag name
+   * is itself information — "client:acme-takeover" on a P0 note — so a member
+   * reads only the buckets at or above their floor, and "acl" is admin-only.
+   * `tags` stays the union for admins and the identity-less system path. A blob
+   * written before buckets existed has none, and is unusable for a floored reader
+   * until the next rebuild.
+   */
+  byLevel?: Record<string, string[]>;
+}
+
+/** What a scan of one workspace yields: the union plus the per-level buckets. */
+interface VocabularyBlob {
+  tags: string[];
+  byLevel: Record<string, string[]>;
+}
+
+const sortedUnique = (lists: string[][]): string[] => [...new Set(lists.flat())].sort();
+
+/**
+ * The tags this reader may see from one cached blob, or null when the blob cannot
+ * answer for them (no buckets yet). Null reads as "not cached" so it is rebuilt.
+ */
+function visibleTags(cached: { tags: string[]; byLevel?: Record<string, string[]> }, identity: Identity): string[] | null {
+  if (identity.role === "admin") return cached.tags;
+  if (!cached.byLevel) return null;
+  const floor = identityClearanceFloor(identity);
+  const lists: string[][] = [];
+  for (const [level, tags] of Object.entries(cached.byLevel)) {
+    const n = Number(level);
+    if (Number.isInteger(n) && n >= floor) lists.push(tags);
+  }
+  return sortedUnique(lists);
 }
 
 /** Any failure reads as "nothing cached", which costs a scan rather than a request. */
@@ -118,9 +153,17 @@ async function readCache(env: Env, key: string = TAG_VOCABULARY_KEY): Promise<Ca
     if (!raw) return null;
     const parsed = JSON.parse(raw) as unknown;
     if (typeof parsed !== "object" || parsed === null) return null;
-    const { tags, rebuiltAt } = parsed as Record<string, unknown>;
+    const { tags, rebuiltAt, byLevel: rawLevels } = parsed as Record<string, unknown>;
     if (!Array.isArray(tags)) return null;
+    let byLevel: Record<string, string[]> | undefined;
+    if (rawLevels && typeof rawLevels === "object" && !Array.isArray(rawLevels)) {
+      byLevel = {};
+      for (const [k, v] of Object.entries(rawLevels as Record<string, unknown>)) {
+        if (Array.isArray(v)) byLevel[k] = v.filter((t): t is string => typeof t === "string");
+      }
+    }
     return {
+      byLevel,
       tags: tags.filter((t): t is string => typeof t === "string"),
       // A missing or unusable timestamp reads as "never reconciled" — 0 — so the value
       // is still served and a rebuild is still scheduled. A timestamp in the future is
@@ -198,28 +241,40 @@ async function scanTagVocabulary(env: Env): Promise<string[]> {
 async function scanTagVocabularyByWorkspace(
   env: Env,
   workspaceIds: string[],
-): Promise<Map<string, string[]>> {
+): Promise<Map<string, VocabularyBlob>> {
   const placeholders = workspaceIds.map(() => "?").join(", ");
+  // lvl: the entry's clearance level, or -1 when it sits in a directory with an ACL
+  // (readable by admins only here, because a tag list has no directory to check).
   const { results } = await env.DB.prepare(
-    `SELECT DISTINCT workspace_id, value FROM entries, json_each(entries.tags) WHERE workspace_id IN (${placeholders})`
+    `SELECT DISTINCT workspace_id, value, CASE WHEN directory_id IS NOT NULL AND EXISTS (SELECT 1 FROM brain_directory_grants _g WHERE _g.directory_id = entries.directory_id) THEN -1 ELSE clearance_level END AS lvl FROM entries, json_each(entries.tags) WHERE workspace_id IN (${placeholders})`
   ).bind(...workspaceIds).all();
 
   // Seed every requested workspace so one with no entries yet caches an empty
   // vocabulary rather than re-scanning on every read.
-  const byWorkspace = new Map<string, string[]>(workspaceIds.map(w => [w, []]));
-  for (const row of results as { workspace_id: unknown; value: unknown }[]) {
+  const all = new Map<string, string[]>(workspaceIds.map(w => [w, []]));
+  const levels = new Map<string, Map<string, string[]>>(workspaceIds.map(w => [w, new Map()]));
+  for (const row of results as { workspace_id: unknown; value: unknown; lvl?: unknown }[]) {
     if (typeof row.value !== "string") continue;
     const wid = typeof row.workspace_id === "string" ? row.workspace_id : "";
-    byWorkspace.get(wid)?.push(row.value);
+    all.get(wid)?.push(row.value);
+    const raw = Number(row.lvl);
+    const bucket = raw === -1 ? "acl" : String(Number.isInteger(raw) && raw >= 0 && raw <= 12 ? raw : 12);
+    const perWorkspace = levels.get(wid);
+    if (perWorkspace) perWorkspace.set(bucket, [...(perWorkspace.get(bucket) ?? []), row.value]);
   }
-  for (const [wid, tags] of byWorkspace) byWorkspace.set(wid, [...new Set(tags)].sort());
+  const byWorkspace = new Map<string, VocabularyBlob>();
+  for (const [wid, tags] of all) {
+    const byLevel: Record<string, string[]> = {};
+    for (const [bucket, list] of levels.get(wid) ?? []) byLevel[bucket] = [...new Set(list)].sort();
+    byWorkspace.set(wid, { tags: [...new Set(tags)].sort(), byLevel });
+  }
   return byWorkspace;
 }
 
 /** Store one workspace's freshly scanned vocabulary. Never throws. */
-async function writeCache(env: Env, key: string, tags: string[]): Promise<void> {
+async function writeCache(env: Env, key: string, tags: string[], byLevel?: Record<string, string[]>): Promise<void> {
   try {
-    await env.OAUTH_KV.put(key, JSON.stringify({ tags, rebuiltAt: Date.now() } satisfies CachedVocabulary));
+    await env.OAUTH_KV.put(key, JSON.stringify({ tags, rebuiltAt: Date.now(), ...(byLevel ? { byLevel } : {}) } satisfies CachedVocabulary));
   } catch (e) {
     console.error("Tag vocabulary cache write failed (non-fatal):", e);
   }
@@ -238,9 +293,9 @@ async function rebuildTagVocabulary(env: Env, key: string): Promise<string[]> {
 }
 
 /** Scan the named workspaces in one statement and store each one's blob. */
-async function rebuildWorkspaces(env: Env, workspaceIds: string[]): Promise<Map<string, string[]>> {
+async function rebuildWorkspaces(env: Env, workspaceIds: string[]): Promise<Map<string, VocabularyBlob>> {
   const scanned = await scanTagVocabularyByWorkspace(env, workspaceIds);
-  await Promise.all([...scanned].map(([wid, tags]) => writeCache(env, tagVocabularyKey(wid), tags)));
+  await Promise.all([...scanned].map(([wid, blob]) => writeCache(env, tagVocabularyKey(wid), blob.tags, blob.byLevel)));
   return scanned;
 }
 
@@ -291,16 +346,21 @@ export async function getTagVocabulary(env: Env, ctx?: ExecutionContext, identit
   }
 
   const workspaces = scopeWorkspaces(identity, only);
+  // A blob this reader cannot be answered from (pre-bucket format) counts as not cached.
   const cached = await Promise.all(
-    workspaces.map(async w => [w, await readCache(env, tagVocabularyKey(w))] as const),
+    workspaces.map(async w => {
+      const c = await readCache(env, tagVocabularyKey(w));
+      return [w, c && visibleTags(c, identity) !== null ? c : null] as const;
+    }),
   );
+  const seen = (c: CachedVocabulary | null): string[] => (c ? visibleTags(c, identity) ?? [] : []);
 
   const fresh = Date.now();
   const stale = cached.filter(([, c]) => !c || fresh - c.rebuiltAt >= TAG_VOCABULARY_MAX_AGE_MS);
-  const union = (lists: string[][]) => [...new Set(lists.flat())].sort();
+  const union = sortedUnique;
 
   // Everything current: no D1 at all, which is the steady state this cache is for.
-  if (!stale.length) return union(cached.map(([, c]) => c!.tags));
+  if (!stale.length) return union(cached.map(([, c]) => seen(c)));
 
   // Something aged out but every workspace still has a last-good value, and there is
   // somewhere to hang the work: serve what we have and refresh behind the response.
@@ -311,7 +371,7 @@ export async function getTagVocabulary(env: Env, ctx?: ExecutionContext, identit
       rebuildWorkspaces(env, staleIds)
         .catch(e => console.error("Tag vocabulary rebuild failed (non-fatal):", e)),
     );
-    return union(cached.map(([, c]) => c!.tags));
+    return union(cached.map(([, c]) => seen(c)));
   }
 
   // A workspace with nothing cached at all — a brain's first request, or KV having
@@ -319,10 +379,13 @@ export async function getTagVocabulary(env: Env, ctx?: ExecutionContext, identit
   // degraded answer, it is a wrong one.
   try {
     const rebuilt = await rebuildWorkspaces(env, staleIds);
-    return union(cached.map(([w, c]) => rebuilt.get(w) ?? c?.tags ?? []));
+    return union(cached.map(([w, c]) => {
+      const blob = rebuilt.get(w);
+      return blob ? visibleTags(blob, identity) ?? [] : seen(c);
+    }));
   } catch (e) {
     console.error("Tag vocabulary rebuild failed (non-fatal):", e);
-    return union(cached.map(([, c]) => c?.tags ?? []));
+    return union(cached.map(([, c]) => seen(c)));
   }
 }
 
@@ -358,7 +421,7 @@ export async function getTagVocabulary(env: Env, ctx?: ExecutionContext, identit
  * actively used brain postpone its rebuild forever, so a deleted tag would never be
  * pruned.
  */
-export async function rememberTags(env: Env, tags: string[], workspaceId?: string): Promise<void> {
+export async function rememberTags(env: Env, tags: string[], workspaceId?: string, clearanceLevel?: number): Promise<void> {
   // Exactly one blob, chosen to match the reader that will look for this tag —
   // still one KV get per capture, as before the cache was partitioned.
   //
@@ -375,16 +438,21 @@ export async function rememberTags(env: Env, tags: string[], workspaceId?: strin
   // (recallEntries' only two callers, the /recall route and the MCP tool, both
   // resolve an Identity first), so the second KV get was pure cost — three extra
   // subrequests a night against the weekly insight cron's 50-subrequest budget.
-  await admitInto(env, workspaceId ? tagVocabularyKey(workspaceId) : TAG_VOCABULARY_KEY, tags);
+  await admitInto(env, workspaceId ? tagVocabularyKey(workspaceId) : TAG_VOCABULARY_KEY, tags, clearanceLevel);
 }
 
-async function admitInto(env: Env, key: string, tags: string[]): Promise<void> {
+async function admitInto(env: Env, key: string, tags: string[], clearanceLevel?: number): Promise<void> {
   try {
     const cached = await readCache(env, key);
     if (!cached) return;
 
+    // The bucket the new tags belong in. An unknown level goes to the most
+    // restricted bucket: a tag shown late is a stale dropdown, a tag shown early
+    // to the wrong reader is the leak.
+    const bucket = String(Number.isInteger(clearanceLevel) && clearanceLevel! >= 0 && clearanceLevel! <= 12 ? clearanceLevel : 0);
     const known = new Set(cached.tags);
-    const additions = tags.filter(t => typeof t === "string" && t && !known.has(t));
+    const knownInBucket = new Set(cached.byLevel?.[bucket] ?? []);
+    const additions = tags.filter(t => typeof t === "string" && t && (!known.has(t) || (cached.byLevel && !knownInBucket.has(t))));
     if (!additions.length) return;
 
     // Re-read immediately before writing, and merge onto whatever is there now.
@@ -402,13 +470,21 @@ async function admitInto(env: Env, key: string, tags: string[]): Promise<void> {
     const latest = (await readCache(env, key)) ?? cached;
     const merged = new Set(latest.tags);
     for (const tag of additions) merged.add(tag);
-    if (merged.size === latest.tags.length) return;
+    const byLevel = latest.byLevel ? { ...latest.byLevel } : undefined;
+    let bucketGrew = false;
+    if (byLevel) {
+      const inBucket = new Set(byLevel[bucket] ?? []);
+      for (const tag of additions) if (!inBucket.has(tag)) { inBucket.add(tag); bucketGrew = true; }
+      byLevel[bucket] = [...inBucket].sort();
+    }
+    if (merged.size === latest.tags.length && !bucketGrew) return;
 
     await env.OAUTH_KV.put(
       key,
       JSON.stringify({
         tags: [...merged].sort(),
         rebuiltAt: Math.max(cached.rebuiltAt, latest.rebuiltAt),
+        ...(byLevel ? { byLevel } : {}),
       } satisfies CachedVocabulary)
     );
   } catch (e) {

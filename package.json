@@ -16,6 +16,7 @@
     "db:migrate": "wrangler d1 execute second-brain-db --file=db/schema.sql",
     "db:migrate:remote": "wrangler d1 execute second-brain-db --remote --file=db/schema.sql",
     "vectors:create": "wrangler vectorize create second-brain-vectors --dimensions=384 --metric=cosine",
+    "vectors:indexes": "node scripts/vectorize-indexes.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",

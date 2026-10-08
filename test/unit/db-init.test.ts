@@ -15,6 +15,12 @@ const MIGRATION: [column: string, alter: string][] = [
   ["clearance_level", `ALTER TABLE entries ADD COLUMN clearance_level INTEGER NOT NULL DEFAULT 12`],
   ["directory_id", `ALTER TABLE entries ADD COLUMN directory_id TEXT`],
   ["source_path", `ALTER TABLE entries ADD COLUMN source_path TEXT`],
+  ["access_count", `ALTER TABLE entries ADD COLUMN access_count INTEGER NOT NULL DEFAULT 0`],
+  ["last_accessed_at", `ALTER TABLE entries ADD COLUMN last_accessed_at INTEGER`],
+  ["version", `ALTER TABLE entries ADD COLUMN version INTEGER NOT NULL DEFAULT 1`],
+  ["superseded_by", `ALTER TABLE entries ADD COLUMN superseded_by TEXT`],
+  ["archived_at", `ALTER TABLE entries ADD COLUMN archived_at INTEGER`],
+  ["compacted_at", `ALTER TABLE entries ADD COLUMN compacted_at INTEGER`],
 ];
 // Tenancy (v3) ALTERs exist for upgraded brains, but on fresh brains these columns
 // ship inside the base CREATE (see BASE_COLUMNS), so unlike MIGRATION they are not
@@ -27,6 +33,8 @@ const USERS_ALTERS: [column: string, alter: string][] = [
   ["removed_at", `ALTER TABLE users ADD COLUMN removed_at INTEGER`],
   ["last_used_at", `ALTER TABLE users ADD COLUMN last_used_at INTEGER`],
   ["clearance_floor", `ALTER TABLE users ADD COLUMN clearance_floor INTEGER NOT NULL DEFAULT 12`],
+  ["direct_publish", `ALTER TABLE users ADD COLUMN direct_publish INTEGER NOT NULL DEFAULT 0`],
+  ["approval_status", `ALTER TABLE users ADD COLUMN approval_status TEXT NOT NULL DEFAULT 'active'`],
 ];
 // admin_events shipped without its two subject columns; a brain that wrote a single
 // administration event before they existed has the narrow table, and the audit writer
@@ -49,6 +57,9 @@ const ALL_OBJECTS = ["entries", "idx_entries_created_at", "idx_entries_source", 
   "workspaces", "prompt_capsule_revisions", "idx_workspaces_kind", "users", "idx_users_token_hash", "idx_users_email",
   "memberships", "idx_memberships_workspace", "entry_events", "idx_entry_events_entry", "idx_entry_events_created",
   "admin_events", "idx_admin_events_created", "maintenance_cursor", "brain_directories", "idx_brain_directories_workspace", "brain_directory_grants", "idx_brain_directory_grants_user", "idx_entries_workspace_created", "idx_entries_clearance", "idx_entries_capsule",
+  "entry_classification", "doc_nodes", "contributions", "member_invites", "idx_entry_classification_doc", "idx_entry_classification_review", "idx_doc_nodes_workspace", "idx_contributions_queue", "idx_member_invites_token", "idx_member_invites_email", "member_sessions", "idx_member_sessions_user",
+  // History and memory aging.
+  "entry_versions", "idx_entry_versions_entry", "aging_suggestions", "idx_aging_suggestions_queue", "job_runs", "idx_job_runs_recent",
   ...PROMPT_CAPSULE_TRIGGERS];
 // Columns in the base CREATE of entries since v3 — present on every brain init touches.
 const BASE_COLUMNS = ["id", "content", "tags", "source", "created_at", "vector_ids", "workspace_id", "actor_id"];
@@ -215,7 +226,9 @@ describe("initializeDatabase updated_at migration", () => {
       // no duplicates, so the repair path behind the email index never runs.
       // MOVED 37 -> 42 by the Prompt Capsule revision table and its four
       // triggers, which make invalidation atomic with entry writes.
-      expect(migrated).toBe(52); // baseline plus permission tables/columns and clearance index
+      // MOVED 66 -> 78 by memory aging: six entries columns (usage ranking, version,
+      // supersession, archive, compaction) and three tables with their indexes.
+      expect(migrated).toBe(78); // baseline plus permission tables/columns, clearance index and the Shared Brain pilot tables
       expect(execd.length + prepared.length).toBe(migrated + 3); // three probes total
       expect(prepared).toHaveLength(7); // three probes plus four prepared trigger DDLs
       expect(touchesEntries(execd)).toEqual([]);
@@ -531,7 +544,7 @@ describe("initializeDatabase against real SQLite", () => {
     // MOVED 35 -> 36 by idx_entry_events_created; see the sibling pin above.
     // MOVED 36 -> 38 by idx_memberships_workspace and idx_users_email.
     // MOVED 38 -> 43 by the Prompt Capsule revision table and its four triggers.
-    expect(cold).toBe(53); // one probe, then the migrated schema statements
+    expect(cold).toBe(79); // one probe, then the migrated schema statements
     expect(d1.issued).toHaveLength(1);
     expect(d1.issued[0]).toMatch(PROBE);
   });
@@ -647,6 +660,8 @@ describe("initializeDatabase against real SQLite", () => {
     expect(d1.issued.filter(s => /^ALTER TABLE users/.test(s))).toEqual([
       `ALTER TABLE users ADD COLUMN last_used_at INTEGER`,
       `ALTER TABLE users ADD COLUMN clearance_floor INTEGER NOT NULL DEFAULT 12`,
+      `ALTER TABLE users ADD COLUMN direct_publish INTEGER NOT NULL DEFAULT 0`,
+      `ALTER TABLE users ADD COLUMN approval_status TEXT NOT NULL DEFAULT 'active'`,
     ]);
     // Nothing wrote to the row: every field survives and the new one reads NULL.
     const row = await d1.db.prepare(`SELECT * FROM users WHERE id = 'u1'`).first() as Record<string, unknown>;

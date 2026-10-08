@@ -38,12 +38,16 @@ const tagMatchesLike = (tags: string[], tag: string) =>
 const TRIGGER_DDL = new Map([...readFileSync(resolve(import.meta.dirname, "../../db/schema.sql"), "utf8").matchAll(/CREATE TRIGGER IF NOT EXISTS (\w+)[\s\S]*?END;/g)].map(m => [m[1], m[0].slice(0, -1)]));
 const SCHEMA_PROBE_RESULTS = [
   ...["entries", "edges", "insight_candidates", "workspaces", "users", "memberships", "brain_directories", "brain_directory_grants",
-    "entry_events", "admin_events", "maintenance_cursor", "prompt_capsule_revisions"]
+    "entry_events", "admin_events", "maintenance_cursor", "prompt_capsule_revisions",
+    "entry_classification", "doc_nodes", "contributions", "member_invites", "member_sessions",
+    "entry_versions", "aging_suggestions", "job_runs"]
     .map(name => ({ kind: "table", name })),
   ...["idx_entries_created_at", "idx_entries_source", "idx_entries_workspace_created", "idx_entries_capsule",
     "idx_edges_source", "idx_edges_target", "idx_edges_weight", "idx_insight_candidates_queue",
     "idx_workspaces_kind", "idx_users_token_hash", "idx_users_email", "idx_memberships_workspace",
-    "idx_entry_events_entry", "idx_entry_events_created", "idx_admin_events_created", "idx_brain_directories_workspace", "idx_brain_directory_grants_user", "idx_entries_clearance"]
+    "idx_entry_events_entry", "idx_entry_events_created", "idx_admin_events_created", "idx_brain_directories_workspace", "idx_brain_directory_grants_user", "idx_entries_clearance",
+    "idx_entry_classification_doc", "idx_entry_classification_review", "idx_doc_nodes_workspace", "idx_contributions_queue", "idx_member_invites_token", "idx_member_invites_email", "idx_member_sessions_user",
+    "idx_entry_versions_entry", "idx_aging_suggestions_queue", "idx_job_runs_recent"]
     .map(name => ({ kind: "index", name })),
   ...["prompt_capsule_entry_insert", "prompt_capsule_entry_update",
     "prompt_capsule_entry_delete", "prompt_capsule_workspace_delete"]
@@ -51,7 +55,8 @@ const SCHEMA_PROBE_RESULTS = [
   ...["id", "content", "tags", "source", "created_at", "vector_ids", "recall_count",
     "importance_score", "contradiction_wins", "contradiction_losses", "updated_at",
     "staleness_checked_at"].map(name => ({ kind: "column", name })),
-  ...["workspace_id", "actor_id", "clearance_level", "directory_id", "source_path"].map(name => ({ kind: "column", name })),
+  ...["workspace_id", "actor_id", "clearance_level", "directory_id", "source_path",
+    "access_count", "last_accessed_at", "version", "superseded_by", "archived_at", "compacted_at"].map(name => ({ kind: "column", name })),
   // edges.workspace_id arrives by ALTER on upgraded brains and lives in the base
   // CREATE on fresh ones — either way a migrated brain reports it.
   { kind: "edge_column", name: "workspace_id" },
@@ -59,6 +64,8 @@ const SCHEMA_PROBE_RESULTS = [
   { kind: "user_column", name: "removed_at" },
   { kind: "user_column", name: "last_used_at" },
   { kind: "user_column", name: "clearance_floor" },
+  { kind: "user_column", name: "direct_publish" },
+  { kind: "user_column", name: "approval_status" },
   // admin_events' subject columns arrive by ALTER on brains created before they
   // existed and live in the base CREATE on fresh ones — a migrated brain reports
   // both either way. Omitting them here would make this double claim a brain
@@ -329,8 +336,25 @@ export class D1Mock {
           if (row) row.contradiction_losses = (row.contradiction_losses ?? 0) + 1;
           return { meta: { changes: row ? 1 : 0 } };
         }
+        if (s.startsWith("UPDATE entries SET access_count = access_count + 1, last_accessed_at = ? WHERE id IN")) {
+          // Usage counters (src/memory/usage.ts): args are [now, ...ids].
+          const [now, ...ids] = args;
+          let changes = 0;
+          for (const row of db.entries.filter((e: any) => ids.includes(e.id))) {
+            row.access_count = (row.access_count ?? 0) + 1;
+            row.last_accessed_at = now;
+            changes++;
+          }
+          return { meta: { changes } };
+        }
         if (s.startsWith("UPDATE entries SET recall_count")) {
-          const [id] = args;
+          // Either the bare recall_count bump or the one that also counts the access
+          // (args are [now, id] for the latter).
+          const id = s.includes("last_accessed_at") ? args[1] : args[0];
+          if (s.includes("last_accessed_at")) {
+            const hit = db.entries.find((e: any) => e.id === id);
+            if (hit) { hit.access_count = (hit.access_count ?? 0) + 1; hit.last_accessed_at = args[0]; }
+          }
           const row = db.entries.find((e: any) => e.id === id);
           if (row) row.recall_count = (row.recall_count ?? 0) + 1;
           return { meta: { changes: row ? 1 : 0 } };
@@ -821,7 +845,7 @@ export class D1Mock {
           const results = rows.map((e: any) => ({ id: e.id, content: e.content, tags: e.tags, source: e.source, created_at: e.created_at }));
           return { results };
         }
-        if (s.includes("SELECT id, content FROM entries") && s.includes("WHERE tags LIKE") && s.includes("ORDER BY created_at DESC")) {
+        if (/SELECT id, content(, clearance_level)? FROM entries/.test(s) && s.includes("WHERE tags LIKE") && s.includes("ORDER BY created_at DESC")) {
           // compressTag raw entries query — tag match, system-tag exclusion, and the
           // recall/age/contradiction eligibility predicate (cutoff is the 2nd bind param).
           const tagPattern = args[0] as string;
@@ -845,13 +869,15 @@ export class D1Mock {
             })
             .sort((a: any, b: any) => b.created_at - a.created_at)
             .slice(0, 50)
-            .map((e: any) => ({ id: e.id, content: e.content }));
+            .map((e: any) => ({ id: e.id, content: e.content, clearance_level: e.clearance_level ?? 12 }));
           return { results };
         }
-        if (s.includes("SELECT id, content FROM entries WHERE id IN")) {
+        if (s.includes("SELECT id, content FROM entries WHERE id IN") || (s.startsWith("SELECT id, content, (workspace_id = ?") && s.includes("AS readable FROM entries WHERE id IN"))) {
+          // The duplicate check's readability probe: the mock does not evaluate
+          // permissions (see sqlite-d1 for that), so every stored row reads as readable.
           const results = db.entries
             .filter((e: any) => args.includes(e.id))
-            .map((e: any) => ({ id: e.id, content: e.content }));
+            .map((e: any) => ({ id: e.id, content: e.content, readable: 1 }));
           return { results };
         }
         if (s.includes("json_each(entries.tags)") && s.includes("HAVING count > 10")) {

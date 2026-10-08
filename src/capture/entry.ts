@@ -11,6 +11,7 @@ import { tagsAfterWrite } from "../memory/stale";
 import { getVolatility, withVolatility } from "../memory/volatility";
 import { TAG_LIKE_ESCAPE, tagLikePattern } from "../memory/tag-sql";
 import { rememberTags } from "../tags/vocabulary";
+import { snapshotAndBump } from "../memory/versions";
 import { isCapsuleTag } from "../tags/system";
 import { OWNER_WRITE_CONTEXT, type WriteContext } from "../lib/scope";
 import { TRANSCRIPT_SOURCES } from "../constants";
@@ -82,7 +83,11 @@ export async function captureEntry(
   const c = cleanContent || raw;
   const t = [...new Set([...tags.map(tag => tag.trim().toLowerCase()).filter(Boolean), ...hashtags])];
 
-  const { duplicate: dup, contradiction, mergeAction, neighbors } = await checkDuplicateAndContradiction(c, env, cfg, writeCtx.workspaceId, ctx);
+  const { duplicate: dup, contradiction, mergeAction, neighbors } = await checkDuplicateAndContradiction(
+    c, env, cfg, writeCtx.workspaceId, ctx,
+    // Compared against what the writer may read; a system writer (no reader) at the new entry's own level.
+    { reader: writeCtx.reader, levelFloor: writeCtx.reader ? undefined : writeCtx.clearanceLevel },
+  );
 
   const definesCapsule = t.some(isCapsuleTag);
   if (definesCapsule && getStatus(t) === null) t.push("status:draft");
@@ -138,6 +143,8 @@ export async function captureEntry(
           const stripped = tagsAfterWrite(existingTags);
           const refreshedTags = incomingVerdict ? withVolatility(stripped, incomingVerdict) : stripped;
           const now = Date.now();
+          // A merge or replace overwrites the target's text: keep the old text in history.
+          await snapshotAndBump(env, targetId, { actorId: writeCtx.actorId, reason: "merge", now });
           await env.DB.prepare(`UPDATE entries SET content = ?, tags = ?, updated_at = ? WHERE id = ?`)
             .bind(newContent, JSON.stringify(refreshedTags), now, targetId).run();
           try {
@@ -206,7 +213,7 @@ export async function captureEntry(
   // the capture does not wait on KV — which means the tag is admitted once this
   // settles rather than by the time the response lands, and a `GET /tags` fired
   // straight off the back of the save can miss it by one refresh.
-  ctx.waitUntil(rememberTags(env, finalTags, writeCtx.workspaceId));
+  ctx.waitUntil(rememberTags(env, finalTags, writeCtx.workspaceId, writeCtx.clearanceLevel ?? 12));
 
   // A flagged capture is a near-duplicate the writer chose to keep, so the
   // entry it duplicates is its top neighbour by construction. Linking them

@@ -133,3 +133,23 @@ describe("vectorize workspace scoping", () => {
     for (const vec of vectors) expect(vec.metadata.workspace_id).toBe("ws-team");
   });
 });
+
+describe("degraded (unfiltered) Vectorize queries keep their recall", () => {
+  beforeEach(() => resetVectorizeFilterState());
+
+  it("asks for the widest top-K the index allows when the metadata filter is rejected", async () => {
+    const query = vi.fn()
+      .mockRejectedValueOnce(new Error("invalid filter: clearance_level is not indexed"))
+      .mockResolvedValueOnce({ matches: [] });
+    const v = makeVectorizeMock({ query });
+    const { degraded } = await queryVectorizeScoped(v as never, [0.1], { topK: 6, filter: workspaceFilter(identity)!.filter });
+    expect(degraded).toBe(true);
+    // 2nd call is the unfiltered one: forbidden vectors crowd the window, so it is widened.
+    expect(query.mock.calls[1][1]).toMatchObject({ topK: 50 });
+    expect(query.mock.calls[1][1]).not.toHaveProperty("filter");
+  });
+
+  it("adds the clearance floor to the write-path filter only when asked", () => {
+    expect(singleWorkspaceFilter("ws-p", 7)).toEqual({ filter: { workspace_id: { $in: ["ws-p"] }, clearance_level: { $gte: 7 } } });
+  });
+});

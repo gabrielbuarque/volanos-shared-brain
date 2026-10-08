@@ -48,6 +48,12 @@ const LEGACY_SHAPES: Record<string, string> = {
   workspaces: `CREATE TABLE workspaces (id TEXT PRIMARY KEY, kind TEXT NOT NULL DEFAULT 'personal', name TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL)`,
   brain_directories: `CREATE TABLE brain_directories (id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, parent_id TEXT, name TEXT NOT NULL, path TEXT NOT NULL, default_clearance INTEGER NOT NULL DEFAULT 12, owner_id TEXT NOT NULL, created_at INTEGER NOT NULL, UNIQUE(workspace_id, path))`,
   brain_directory_grants: `CREATE TABLE brain_directory_grants (directory_id TEXT NOT NULL, user_id TEXT NOT NULL, can_read INTEGER NOT NULL DEFAULT 1, can_write INTEGER NOT NULL DEFAULT 0, can_delete INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL, PRIMARY KEY(directory_id, user_id))`,
+  // Shared Brain pilot tables: shipped whole, never widened since.
+  entry_classification: `CREATE TABLE entry_classification (entry_id TEXT PRIMARY KEY, doc_id TEXT NOT NULL, node_id TEXT NOT NULL, ord INTEGER NOT NULL DEFAULT 0, jev_level INTEGER, confidence REAL, top3 TEXT NOT NULL DEFAULT '[]', review INTEGER NOT NULL DEFAULT 0, model TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL)`,
+  doc_nodes: `CREATE TABLE doc_nodes (doc_id TEXT NOT NULL, node_id TEXT NOT NULL, workspace_id TEXT NOT NULL, parent_id TEXT, title TEXT NOT NULL, path TEXT NOT NULL, ord INTEGER NOT NULL DEFAULT 0, source_path TEXT, created_at INTEGER NOT NULL, PRIMARY KEY(doc_id, node_id))`,
+  contributions: `CREATE TABLE contributions (id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, submitter_id TEXT NOT NULL, doc_id TEXT NOT NULL, node_id TEXT NOT NULL, ord INTEGER NOT NULL DEFAULT 0, source TEXT NOT NULL DEFAULT '', source_path TEXT, content TEXT NOT NULL, suggested_level INTEGER NOT NULL, confidence REAL, top3 TEXT NOT NULL DEFAULT '[]', reason TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'pending', resolved_by TEXT, resolved_at INTEGER, final_level INTEGER, entry_id TEXT, created_at INTEGER NOT NULL)`,
+  member_invites: `CREATE TABLE member_invites (id TEXT PRIMARY KEY, email TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'member', clearance_floor INTEGER NOT NULL DEFAULT 12, token_hash TEXT NOT NULL, invited_by TEXT NOT NULL, created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL, accepted_at INTEGER, cancelled_at INTEGER)`,
+  member_sessions: `CREATE TABLE member_sessions (token_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL, created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL)`,
   // Added with Prompt Capsule caching and never widened since.
   prompt_capsule_revisions: `CREATE TABLE prompt_capsule_revisions (workspace_id TEXT PRIMARY KEY, revision TEXT NOT NULL)`,
   // v3 as first provisioned: default_share, removed_at and last_used_at all
@@ -58,6 +64,10 @@ const LEGACY_SHAPES: Record<string, string> = {
   // The regression this file exists for: shipped with five columns, gained
   // target_user_id and workspace_id a release later.
   admin_events: `CREATE TABLE admin_events (id TEXT PRIMARY KEY, actor_id TEXT NOT NULL DEFAULT '', event TEXT NOT NULL, payload TEXT NOT NULL DEFAULT '{}', created_at INTEGER NOT NULL)`,
+  // History and aging tables: shipped whole, never widened since.
+  entry_versions: `CREATE TABLE entry_versions (id TEXT PRIMARY KEY, entry_id TEXT NOT NULL, version INTEGER NOT NULL, content TEXT NOT NULL, tags TEXT NOT NULL DEFAULT '[]', clearance_level INTEGER NOT NULL DEFAULT 12, directory_id TEXT, source_path TEXT, actor_id TEXT NOT NULL DEFAULT '', reason TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL, UNIQUE(entry_id, version))`,
+  aging_suggestions: `CREATE TABLE aging_suggestions (id TEXT PRIMARY KEY, kind TEXT NOT NULL, workspace_id TEXT NOT NULL DEFAULT '', a_id TEXT NOT NULL, b_id TEXT NOT NULL, score REAL NOT NULL DEFAULT 0, detail TEXT NOT NULL DEFAULT '{}', owner_id TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'open', resolution TEXT NOT NULL DEFAULT '', resolved_by TEXT NOT NULL DEFAULT '', resolved_at INTEGER, created_at INTEGER NOT NULL, UNIQUE(kind, a_id, b_id))`,
+  job_runs: `CREATE TABLE job_runs (id TEXT PRIMARY KEY, job TEXT NOT NULL, actor_id TEXT NOT NULL DEFAULT '', started_at INTEGER NOT NULL, finished_at INTEGER NOT NULL, ok INTEGER NOT NULL DEFAULT 1, summary TEXT NOT NULL DEFAULT '{}')`,
   maintenance_cursor: `CREATE TABLE maintenance_cursor (id INTEGER PRIMARY KEY CHECK (id = 1), workspace_id TEXT NOT NULL DEFAULT '', advanced_at INTEGER NOT NULL DEFAULT 0)`,
 };
 
