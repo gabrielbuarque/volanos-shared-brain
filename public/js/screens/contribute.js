@@ -12,15 +12,18 @@
   const clientOptions = () => [...App.clients.map((c) => ({ value: c.id, label: c.name })), { value: App.INTERNAL, label: t('client.internal') }]
   const levelOptions = () => Array.from({ length: 13 }, (_, n) => ({ value: String(n), label: `P${n} · ${(App.levels[n] && App.levels[n].holders) || ''}` }))
 
+  let prefill = ''
+
   function titleFromName(name) {
     return String(name || '').replace(/\.[a-z0-9]+$/i, '').replace(/[-_]+/g, ' ').trim()
   }
 
   /* ---------- Enviar ---------- */
 
-  function sendPanel(onSent) {
+  function sendPanel(onSent, onKept) {
     const panel = h('div', { class: 'contribute__send' })
-    const state = { text: '', filename: '' }
+    const state = { text: prefill, filename: '' }
+    prefill = ''
 
     function step1() {
       const area = Input({ multiline: true, rows: 8, label: t('contribute.pasteLabel'), placeholder: t('contribute.pastePlaceholder'), hint: t('contribute.limit', { max: MAX_CHARS.toLocaleString(localeTag()) }) })
@@ -54,7 +57,28 @@
           mount(err, Parts.ErrorState({}))
         }
       } }, t('contribute.analyze'))
-      mount(panel, drop, area, err, go)
+      const keep = Button({ variant: 'secondary', onClick: async () => {
+        const text = area.control.value.trim()
+        if (!text) { mount(err, h('p', { class: 'form-error', role: 'alert' }, t('contribute.empty'))); return }
+        if (text.length > MAX_CHARS) { mount(err, h('p', { class: 'form-error', role: 'alert' }, t('contribute.tooLong', { max: MAX_CHARS.toLocaleString(localeTag()) }))); return }
+        keep.disabled = true
+        const title = titleFromName(state.filename)
+        const content = /^#s/.test(text) || !title ? text : `# ${title}
+
+${text}`
+        try {
+          const r = await Session.api('/capture', { method: 'POST', body: { content, workspace: 'personal', source: 'note' } })
+          g.VUI.toast(r && r.duplicate ? t('contribute.keptDuplicate') : t('contribute.keptBody'), { title: t('contribute.keptTitle') })
+          state.text = ''
+          state.filename = ''
+          step1()
+          if (onKept) onKept()
+        } catch (e) {
+          keep.disabled = false
+          mount(err, Parts.ErrorState({}))
+        }
+      } }, t('contribute.keep'))
+      mount(panel, drop, area, err, h('div', { class: 'state__actions' }, go, keep), h('p', { class: 'v-caption' }, t('contribute.keepHint')))
     }
 
     function step2(s) {
@@ -99,10 +123,36 @@
     } catch (e) { mount(host) }
   }
 
+  /* ---------- Meu espaço (privado) ---------- */
+
+  async function privatePanel(host, goSend) {
+    mount(host, Parts.Skeleton({ lines: 3 }))
+    try {
+      const rows = await Session.api('/list?workspace=personal&n=50')
+      mount(host, h('p', { class: 'v-caption' }, t('mine.intro')),
+        rows.length
+          ? h('div', { class: 'reviewlist' }, rows.map((r) => Card({ variant: 'outline', class: 'reviewcard' },
+            h('div', { class: 'source__head' }, h('h3', { class: 'source__title' }, g.Fmt.titleOf(r.content) || t('source.untitled')), g.VUI.Tag({ variant: 'solid' }, t('source.private'))),
+            h('p', { class: 'source__meta' }, formatDateUI(r.updated_at || r.created_at)),
+            h('p', { class: 'v-caption' }, (g.Fmt.bodyOf(r.content) || r.content).slice(0, 220)),
+            h('div', { class: 'state__actions' },
+              Button({ variant: 'secondary', size: 'sm', onClick: () => { prefill = r.content; goSend() } }, t('mine.share')),
+              Button({ variant: 'ghost', size: 'sm', onClick: () => forgetDialog(r, () => privatePanel(host, goSend)) }, t('mine.forget'))))))
+          : Parts.EmptyState({ title: t('mine.emptyTitle'), body: t('mine.emptyBody') }))
+    } catch (e) { mount(host, Parts.ErrorState({ onRetry: () => privatePanel(host, goSend) })) }
+  }
+
+  function forgetDialog(row, done) {
+    const d = g.VUI.openDialog({ title: t('mine.forgetTitle') }, h('p', null, t('mine.forgetBody')),
+      h('div', { class: 'v-dialog__actions' }, Button({ variant: 'ghost', onClick: () => d.close() }, t('common.cancel')), Button({ onClick: async () => {
+        try { await Session.api('/forget', { method: 'POST', body: { id: row.id } }); d.close(); g.VUI.toast(t('mine.forgotten')); done() } catch (e) { g.VUI.toast(t('error.body'), { title: t('error.title') }) }
+      } }, t('mine.forget'))))
+  }
+
   /* ---------- Fila de revisão ---------- */
 
   function reasonText(c) {
-    const key = { 'canon-proposal': 'canon', 'client-contribution': 'contribution', 'above-submitter': 'above', 'low-confidence': 'low', 'ambiguous-levels': 'ambiguous', 'classifier-unavailable': 'unavailable' }[c.reason]
+    const key = { 'edit-proposal': 'edit', 'canon-proposal': 'canon', 'client-contribution': 'contribution', 'above-submitter': 'above', 'low-confidence': 'low', 'ambiguous-levels': 'ambiguous', 'classifier-unavailable': 'unavailable' }[c.reason]
     return key ? t('review.reason.' + key) : ''
   }
 
@@ -123,6 +173,7 @@
   }
 
   function reviewCard(c, reload) {
+    const isEdit = c.reason === 'edit-proposal'
     const floor = Session.me.clearanceFloor
     const levels = levelOptions().filter((o) => Number(o.value) >= floor)
     const level = Select({ label: t('review.level'), options: levels, value: String(Math.max(floor, c.suggested_level)) })
@@ -130,17 +181,18 @@
     const conf = c.confidence == null ? null : t('review.confidence', { pct: Math.round(c.confidence * 100) })
     return Card({ variant: 'outline', class: 'reviewcard' },
       h('div', { class: 'source__head' },
-        h('h3', { class: 'source__title' }, c.client_name || t('client.internal')),
+        h('h3', { class: 'source__title' }, isEdit && c.current_content ? g.Fmt.titleOf(c.current_content) : c.client_name || t('client.internal')),
         LevelPill({ level: c.suggested_level, text: App.levelText(c.suggested_level), size: 'sm' })),
       h('p', { class: 'source__meta' }, c.submitter_name || t('common.unknownAuthor'), ' · ', formatDateUI(c.created_at), c.source_path ? [' · ', c.source_path] : null, conf ? [' · ', conf] : null),
-      reasonText(c) ? h('p', { class: 'v-caption' }, reasonText(c)) : null,
-      text, level,
+      reasonText(c) ? h('p', { class: 'v-caption' }, reasonText(c), isEdit && c.client_name ? ` · ${c.client_name}` : '') : null,
+      isEdit && c.current_content ? [h('p', { class: 'v-caption' }, t('review.changes')), Parts.Diff(c.current_content, c.content)] : null,
+      text, isEdit ? null : level,
       h('div', { class: 'state__actions' },
         Button({ variant: 'secondary', size: 'sm', onClick: async (e) => {
           e.currentTarget.disabled = true
           try {
-            const r = await Session.api('/contributions/resolve', { method: 'POST', body: { id: c.id, action: 'approve', level: Number(level.control.value), content: text.control.value } })
-            g.VUI.toast(t('review.published', { level: `P${r.level}` }))
+            const r = await Session.api('/contributions/resolve', { method: 'POST', body: { id: c.id, action: 'approve', ...(isEdit ? {} : { level: Number(level.control.value) }), content: text.control.value } })
+            g.VUI.toast(isEdit ? t('review.editApplied') : t('review.published', { level: `P${r.level}` }))
             reload()
           } catch (err) { g.VUI.toast(t('error.body'), { title: t('error.title') }); e.currentTarget.disabled = false }
         } }, t('review.approve')),
@@ -161,11 +213,13 @@
   function render(host) {
     const body = h('div', { class: 'contribute__body' })
     const mine = h('div', { class: 'contribute__mine' })
+    let tabs
     function show(tab) {
       if (tab === 'review') { mount(body); reviewPanel(body) }
-      else { mount(body, sendPanel(() => mineList(mine)), mine); mineList(mine) }
+      else if (tab === 'private') { mount(body); privatePanel(body, () => tabs.select('send')) }
+      else { mount(body, sendPanel(() => mineList(mine), () => tabs.select('private')), mine); mineList(mine) }
     }
-    const tabs = Tabs({ label: t('contribute.tabs'), value: 'send', items: [{ id: 'send', label: t('contribute.tabSend') }, { id: 'review', label: t('contribute.tabReview') }], onChange: show })
+    tabs = Tabs({ label: t('contribute.tabs'), value: 'send', items: [{ id: 'send', label: t('contribute.tabSend') }, { id: 'private', label: t('contribute.tabPrivate') }, { id: 'review', label: t('contribute.tabReview') }], onChange: show })
     mount(host, h('div', { class: 'page-head' }, Eyebrow({}, t('nav.contribute')), h('h1', null, t('contribute.title')), h('p', { class: 'v-caption' }, t('contribute.intro'))), tabs, body)
     show('send')
   }

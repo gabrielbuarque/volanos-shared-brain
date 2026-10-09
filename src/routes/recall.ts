@@ -170,7 +170,7 @@ export async function handleRecallRoutes(
       });
     }
 
-    const conflicts = await findSourceConflicts(env, matches.map((m) => ({ id: m.id, content: m.content })));
+    const conflicts = await findSourceConflicts(env, matches.map((m) => ({ id: m.id, content: m.content, directoryId: m.directoryId ?? null })));
     return json({
       ok: true,
       query_used: queryUsed,

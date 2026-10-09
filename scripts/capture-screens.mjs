@@ -110,7 +110,7 @@ async function main() {
       // Estado limpo por cena: sessão da conta pedida, nada de rascunhos do passeio anterior.
       await page.goto("/");
       await page.eval(`localStorage.clear(); localStorage.setItem('sb_url', ${JSON.stringify(BASE)}); localStorage.setItem('sb_token', ${JSON.stringify(TOKEN)}); localStorage.setItem('sb_locale', 'pt-BR'); localStorage.setItem('sb_theme', 'light');`);
-      await page.goto(scene.path || "/");
+      await page.goto(scene.path && scene.path.startsWith("/#") ? `/?s=${Date.now()}${scene.path.slice(1)}` : scene.path || "/"); // consulta nova força o recarregamento: só o fragmento mudar não reiniciaria o app
       await page.wait(1500);
       await scene.run(page);
       let shot;

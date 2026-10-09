@@ -102,6 +102,59 @@
     paint()
   }
 
+  const REASONS = ['edit', 'merge', 'merge-superseded', 'compact', 'archive', 'restore', 'import']
+
+  /** Histórico: cada versão anterior com o que mudou depois dela; restaurar volta o texto como uma nova versão. */
+  async function historySection(entry, reload) {
+    const box = h('section', { class: 'doc__history', 'aria-label': t('history.title') }, Eyebrow({}, t('history.title')), Parts.Skeleton({ lines: 2 }))
+    try {
+      const { versions } = await Session.api('/entry/versions?id=' + encodeURIComponent(entry.id))
+      const current = (versions[0] ? versions[0].version : 0) + 1
+      const items = versions.map((v, i) => {
+        const newer = i === 0 ? entry.content : versions[i - 1].content
+        const reason = REASONS.includes(v.reason) ? t('history.reason.' + v.reason) : v.reason
+        const body = [
+          h('p', { class: 'v-caption' }, t('history.diffFrom')),
+          Parts.Diff(v.content, newer),
+          entry.can_edit ? h('div', { class: 'state__actions' }, Button({ variant: 'secondary', size: 'sm', onClick: () => restoreDialog(entry, v, reload) }, t('history.restore'))) : null,
+        ]
+        return h('details', { class: 'history__item' },
+          h('summary', null, t('history.version', { n: v.version }), ' · ', reason, ' · ', Parts.authorName(v.actor_name), ' · ', formatDateUI(v.created_at)),
+          ...body)
+      })
+      mount(box, Eyebrow({}, t('history.title')),
+        h('p', { class: 'source__meta' }, t('history.current', { n: current })),
+        items.length ? h('div', { class: 'history__list' }, items) : h('p', { class: 'v-caption' }, t('history.empty')))
+    } catch (e) { mount(box) }
+    return box
+  }
+
+  function editDialog(entry, reload) {
+    const isAdmin = Session.me && Session.me.role === 'admin'
+    const text = g.VUI.Input({ multiline: true, rows: 14, label: t('doc.editText'), hint: isAdmin ? t('doc.editHintDirect') : t('doc.editHint'), value: entry.content, 'data-autofocus': '' })
+    const err = h('div', { 'aria-live': 'polite' })
+    const save = Button({ onClick: async () => {
+      const next = text.control.value.trim()
+      if (!next) { text.setError(t('doc.editEmpty')); return }
+      if (next === entry.content.trim()) { text.setError(t('doc.editSame')); return }
+      save.disabled = true
+      try {
+        const r = await Session.api('/entry/propose-edit', { method: 'POST', body: { id: entry.id, content: next } })
+        d.close()
+        if (r.applied) { g.VUI.toast(t('doc.saved')); reload() } else g.VUI.toast(r.owner && r.owner.name ? t('doc.proposed', { owner: r.owner.name }) : t('doc.proposedPlain'), { title: t('doc.proposedTitle') })
+      } catch (e) { save.disabled = false; mount(err, Parts.ErrorState({})) }
+    } }, t(isAdmin ? 'doc.save' : 'doc.propose'))
+    text.control.addEventListener('input', () => text.clearError())
+    const d = g.VUI.openDialog({ title: t(isAdmin ? 'doc.editTitle' : 'doc.proposeTitle') }, text, err, h('div', { class: 'v-dialog__actions' }, Button({ variant: 'ghost', onClick: () => d.close() }, t('common.cancel')), save))
+  }
+
+  function restoreDialog(entry, v, reload) {
+    const d = g.VUI.openDialog({ title: t('history.restoreTitle', { n: v.version }) }, h('p', null, t('history.restoreBody', { n: v.version })),
+      h('div', { class: 'v-dialog__actions' }, Button({ variant: 'ghost', onClick: () => d.close() }, t('common.cancel')), Button({ onClick: async () => {
+        try { await Session.api('/entry/restore', { method: 'POST', body: { id: entry.id, version: v.version } }); d.close(); g.VUI.toast(t('history.restored')); reload() } catch (e) { g.VUI.toast(t('error.body'), { title: t('error.title') }) }
+      } }, t('history.restore'))))
+  }
+
   /** Leitura de documento: título em Merriweather, corpo em Montserrat, regras finas, medida de até 820px. */
   async function renderDoc(host, id) {
     mount(host, backLink(t('clients.title')), Parts.Skeleton({ lines: 6 }))
@@ -123,7 +176,8 @@
         h('div', { class: 'source__tags' }, Parts.ReviewTag(entry.review_state), LevelPill({ level: entry.clearance_level, text: App.levelText(entry.clearance_level), size: 'sm' }), stale ? Tag({ variant: 'outline', class: 'source__stale' }, t('source.stale')) : null),
         h('hr', { class: 'v-rule doc__top' }),
         Fmt.renderDocument(entry.content),
-        h('div', { class: 'page-head__actions' }, Button({ variant: 'secondary', size: 'sm', onClick: () => g.ClaudeDialog.open({ clientName, ids: [entry.id], question: Fmt.titleOf(entry.content) }) }, t('ask.action.claude'))),
+        h('div', { class: 'page-head__actions' }, Button({ variant: 'secondary', size: 'sm', onClick: () => g.ClaudeDialog.open({ clientName, ids: [entry.id], question: Fmt.titleOf(entry.content) }) }, t('ask.action.claude')), entry.workspace === 'company' && !Session.viewAs ? Button({ variant: 'secondary', size: 'sm', onClick: () => editDialog(entry, () => renderDoc(host, id)) }, t(Session.me && Session.me.role === 'admin' ? 'doc.edit' : 'doc.propose')) : null),
+        await historySection(entry, () => renderDoc(host, id)),
       ))
   }
 

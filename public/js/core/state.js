@@ -5,13 +5,16 @@
  */
 ;(function (g) {
   const INTERNAL = 'internal'
+  // "Todos os clientes": sem escopo de cliente. Continua dentro do nível e do espaço de quem pergunta.
+  const ALL = 'all'
 
   const App = {
     INTERNAL,
+    ALL,
     clients: [],
     internal: { sources: 0, updated_at: null },
     levels: [],
-    activeClient: INTERNAL,
+    activeClient: ALL,
     listeners: new Set(),
 
     storageKey() {
@@ -25,7 +28,17 @@
       this.levels = levels.levels || []
       let saved = null
       try { saved = localStorage.getItem(this.storageKey()) } catch (e) { /* sem armazenamento */ }
-      this.activeClient = saved && (saved === INTERNAL || this.clients.some((c) => c.id === saved)) ? saved : INTERNAL
+      this.activeClient = saved && (saved === INTERNAL || saved === ALL || this.clients.some((c) => c.id === saved)) ? saved : ALL
+    },
+
+    /** Valor do parâmetro ?client= do /recall: vazio quando a busca é em todos os clientes. */
+    scopeParam(id) {
+      return id === ALL ? '' : id
+    },
+
+    /** Opções do seletor de cliente (topo, Perguntar). Contribuir e Canon não usam "todos". */
+    scopeOptions() {
+      return [{ value: ALL, label: t('client.all') }, ...this.clients.map((c) => ({ value: c.id, label: c.name })), { value: INTERNAL, label: t('client.internal') }]
     },
 
     clientById(id) {
@@ -34,6 +47,7 @@
 
     /** Nome para mostrar. O interno vem do catálogo. */
     clientName(id) {
+      if (id === ALL) return t('client.all')
       if (!id || id === INTERNAL) return t('client.internal')
       const c = this.clientById(id)
       return c ? c.name : t('client.unknown')

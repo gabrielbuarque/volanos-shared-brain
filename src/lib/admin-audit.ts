@@ -39,7 +39,9 @@ export type AdminEventName =
   | "view_as_started"
   | "conflict_flagged"
   | "canon_proposed"
-  | "contribution_submitted";
+  | "contribution_submitted"
+  | "edit_proposed"
+  | "document_edited";
 
 export function adminAuditEvent(
   env: Env,

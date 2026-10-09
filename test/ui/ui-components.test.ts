@@ -133,6 +133,16 @@ describe("resposta e documento em DOM seguro", () => {
     expect(el.find((n: FakeNode) => n.tag === "b")).toHaveLength(0);
   });
 
+  it("o primeiro ponto que repete a frase direta não aparece duas vezes", () => {
+    const el = ctx.Fmt.renderAnswer("A meta é 900 leads [1].\n- A meta é 900 leads [1].\n- A ata diz 1.200 [2]", { max: 2 });
+    expect(el.find((n: FakeNode) => n.tag === "li").map((n: FakeNode) => n.textContent)).toEqual(["A ata diz 1.200 [2]"]);
+  });
+
+  it("diferença de versões: só linhas que mudaram, com marca de adicionado e removido", () => {
+    const ops = ctx.Fmt.lineDiff("a\nb\nc", "a\nB\nc\nd");
+    expect(ops.map((o: { t: string; text: string }) => o.t + ":" + o.text)).toEqual(["same:a", "del:b", "add:B", "same:c", "add:d"]);
+  });
+
   it("documento: o primeiro # é o título e cada ## abre uma seção com regra", () => {
     const el = ctx.Fmt.renderDocument("# Título\n\nIntro.\n\n## Escopo\n- um\n- dois");
     expect(el.textContent).not.toContain("Título");

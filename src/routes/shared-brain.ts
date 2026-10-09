@@ -12,6 +12,8 @@ import { chat, chatText, streamWithMeta } from "../llm/provider";
 import { ANSWER_SYSTEM, answerContext, parseNodeChoice, pruneTree, treePrompt, type ReadableChunk } from "../pageindex";
 import { CORS_HEADERS } from "../lib/http";
 import { ownsClientOf } from "./clients";
+import { selectScopedEntries } from "../lib/scoped-entries";
+import { applyDocumentEdit } from "../memory/apply-edit";
 
 /**
  * Routes for the Shared Brain pilot: level texts, the contribution approval
@@ -56,13 +58,25 @@ export async function handleSharedBrainRoutes(
     // Quem não é P0 vê o que está acima do seu nível E o que é do cliente que ele é dono (proposta de Canon, contribuição).
     const ownerOnly = floor === 0 ? "" : "AND (reason = 'above-submitter' OR doc_id IN (SELECT 'client:' || id FROM brain_directories WHERE owner_id = ?))";
     const { results } = await env.DB.prepare(
-      `SELECT id, submitter_id, source, source_path, content, suggested_level, confidence, top3, reason, status, final_level, created_at, doc_id,
+      `SELECT id, submitter_id, source, source_path, content, suggested_level, confidence, top3, reason, status, final_level, created_at, doc_id, node_id,
               (SELECT name FROM users WHERE users.id = contributions.submitter_id) AS submitter_name,
               (SELECT name FROM brain_directories d WHERE 'client:' || d.id = contributions.doc_id) AS client_name
        FROM contributions WHERE status = ? AND suggested_level >= ? ${ownerOnly} AND workspace_id IN (${workspaces.map(() => "?").join(", ")})
        ORDER BY created_at DESC LIMIT 200`,
     ).bind(status, floor, ...(floor === 0 ? [] : [auth.userId]), ...workspaces).all();
-    return json({ ok: true, contributions: (results ?? []).map((r: any) => ({ ...r, top3: safeJson(r.top3) })) });
+    const rows = (results ?? []) as any[];
+    const editIds = [...new Set(rows.filter((r) => r.reason === "edit-proposal").map((r) => String(r.node_id).slice("edit:".length)))];
+    const targets = editIds.length
+      ? await selectScopedEntries<{ id: string; content: string }>(env, auth, { select: "id, content", where: `id IN (${editIds.map(() => "?").join(", ")})`, bindings: editIds, limit: editIds.length })
+      : [];
+    const byId = new Map(targets.map((t) => [t.id, t.content]));
+    return json({
+      ok: true,
+      contributions: rows
+        // Proposta de edição de um documento que o revisor não lê não aparece: nem o nome do documento vaza.
+        .filter((r) => r.reason !== "edit-proposal" || byId.has(String(r.node_id).slice("edit:".length)))
+        .map((r) => ({ ...r, top3: safeJson(r.top3), current_content: r.reason === "edit-proposal" ? byId.get(String(r.node_id).slice("edit:".length)) ?? null : undefined })),
+    });
   }
 
   // What the sender sees: status only, never the content or the level.
@@ -96,6 +110,18 @@ export async function handleSharedBrainRoutes(
       await env.DB.prepare(`UPDATE contributions SET status = 'rejected', resolved_by = ?, resolved_at = ? WHERE id = ? AND status = 'pending'`).bind(auth.userId, now, row.id).run();
       adminAuditEvent(env, ctx, { actorId: auth.userId, targetUserId: row.submitter_id, workspaceId: row.workspace_id, event: "contribution_rejected", payload: { id: row.id, motive: typeof body.motive === "string" ? body.motive.slice(0, 500) : "" } });
       return json({ ok: true, id: row.id, status: "rejected" });
+    }
+
+    if (row.reason === "edit-proposal") {
+      const targetId = String(row.node_id).slice("edit:".length);
+      // O revisor precisa ler o documento (nível, workspace e ACL no SQL); o nível não muda numa edição.
+      const target = (await selectScopedEntries<{ id: string }>(env, auth, { select: "id", where: "id = ?", bindings: [targetId], limit: 1 }))[0];
+      if (!target) return json({ ok: false, error: "Contribution not found" }, 404);
+      const edited = typeof body.content === "string" && body.content.trim() ? body.content.replace(/\r\n/g, "\n").trim() : row.content;
+      if (!(await applyDocumentEdit(env, targetId, edited, row.submitter_id))) return json({ ok: false, error: "Contribution not found" }, 404);
+      await env.DB.prepare(`UPDATE contributions SET status = 'approved', resolved_by = ?, resolved_at = ?, final_level = ?, entry_id = ? WHERE id = ? AND status = 'pending'`).bind(auth.userId, now, row.suggested_level, targetId, row.id).run();
+      adminAuditEvent(env, ctx, { actorId: auth.userId, targetUserId: row.submitter_id, workspaceId: row.workspace_id, event: "contribution_approved", payload: { id: row.id, edit: true, edited: edited !== row.content } });
+      return json({ ok: true, id: row.id, status: "approved", level: row.suggested_level, entry_id: targetId });
     }
 
     const level = normalizeClearance(body.level, row.suggested_level);

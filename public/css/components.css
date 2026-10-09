@@ -8,7 +8,7 @@
 a.v-btn{border-bottom:var(--border-hairline) solid transparent}
 .v-btn--lg{font-size:var(--fs-ui);padding:16px 32px;min-height:56px}
 .v-btn--md{font-size:var(--fs-ui-sm);padding:12px 26px;min-height:44px}
-.v-btn--sm{font-size:11px;padding:8px 18px;min-height:32px}
+.v-btn--sm{font-size:12px;padding:8px 18px;min-height:32px}
 .v-btn--primary{background:var(--volanos-blue);color:var(--white)}
 .v-btn--primary:is(:hover,.is-hover){background:var(--volanos-blue-deep);color:var(--white)}
 .v-btn--secondary{background:transparent;color:var(--volanos-blue);border-color:var(--volanos-blue)}
@@ -108,7 +108,7 @@ a.v-btn{border-bottom:var(--border-hairline) solid transparent}
 .v-level--high{background:var(--volanos-blue);color:var(--white)}
 .v-level--mid{background:transparent;color:var(--volanos-blue);border:var(--border-rule) solid var(--volanos-blue);padding:0 12px}
 .v-level--low{background:var(--neutral-gray);color:var(--volanos-blue)}
-.v-level--sm{height:22px;padding:0 10px;font-size:11px}
+.v-level--sm{height:24px;padding:0 10px;font-size:12px}
 .v-level--sm.v-level--mid{padding:0 8px}
 
 /* ---------- Tabs ---------- */

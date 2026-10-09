@@ -6,7 +6,8 @@ import { INTERNAL_CLIENT, clientPredicate, isStaleSource, parseClientParam, revi
 import { intParam, json } from "../lib/http";
 import { requireAdmin, requireIdentity } from "../lib/identity";
 import { identityClearanceFloor } from "../lib/permissions";
-import { readableWorkspaces } from "../lib/scope";
+import { layerOf, readableWorkspaces } from "../lib/scope";
+import { applyDocumentEdit } from "../memory/apply-edit";
 import { hydrateScopedEntries, selectScopedEntries } from "../lib/scoped-entries";
 
 /**
@@ -126,6 +127,42 @@ export async function handleClientRoutes(request: Request, url: URL, env: Env, c
     ).bind(id, workspace, auth.userId, `client:${clientId}`, content, level, Date.now()).run();
     adminAuditEvent(env, ctx, { actorId: auth.userId, workspaceId: workspace, event: "canon_proposed", payload: { id, client: clientId, level } });
     return json({ ok: true, id, level, owner: head.owner });
+  }
+
+  // POST /entry/propose-edit { id, content }: quem lê um documento pode propor um texto novo para ele.
+  // Admin e quem tem publicação direta aplicam na hora (com versão); os demais entram na fila do owner do cliente,
+  // que vê o que mudou antes de aprovar. Só documentos do Shared Brain: nota privada é de quem a escreveu.
+  if (path === "/entry/propose-edit" && request.method === "POST") {
+    const auth = await requireIdentity(request, env);
+    if (auth instanceof Response) return auth;
+    let body: { id?: unknown; content?: unknown };
+    try { body = await request.json(); } catch { return json({ ok: false, error: "Invalid JSON" }, 400); }
+    const entryId = typeof body.id === "string" ? body.id.trim() : "";
+    const content = typeof body.content === "string" ? body.content.replace(/\r\n/g, "\n").trim() : "";
+    if (!entryId) return json({ ok: false, error: "id is required" }, 400);
+    if (!content || content.length > 20000) return json({ ok: false, error: "content is required (up to 20000 characters)" }, 400);
+    const row = (await selectScopedEntries<{ id: string; content: string; workspace_id: string; clearance_level: number; directory_id: string | null }>(
+      env, auth, { select: "id, content, workspace_id, clearance_level, directory_id", where: "id = ?", bindings: [entryId], limit: 1 },
+    ))[0];
+    if (!row) return json({ ok: false, error: `No entry found with ID: ${entryId}` }, 404);
+    if (layerOf(auth, row.workspace_id) !== "company") return json({ ok: false, error: "Only shared documents take edit proposals" }, 400);
+    if (row.content.trim() === content) return json({ ok: false, error: "No change" }, 400);
+
+    // scope-exempt: reads the caller's own row for a flag; no content
+    const flag = await env.DB.prepare(`SELECT direct_publish AS d FROM users WHERE id = ?`).bind(auth.userId).first<{ d: number }>();
+    if (auth.role === "admin" || flag?.d === 1) {
+      await applyDocumentEdit(env, row.id, content, auth.userId);
+      adminAuditEvent(env, ctx, { actorId: auth.userId, workspaceId: row.workspace_id, event: "document_edited", payload: { id: row.id } });
+      return json({ ok: true, applied: true });
+    }
+    const head = row.directory_id ? await clientHead(env, auth, row.directory_id) : null;
+    const proposalId = `contrib-edit-${crypto.randomUUID()}`;
+    await env.DB.prepare(
+      `INSERT INTO contributions (id, workspace_id, submitter_id, doc_id, node_id, ord, source, source_path, content, suggested_level, confidence, top3, reason, status, created_at)
+       VALUES (?, ?, ?, ?, ?, 0, 'edit', NULL, ?, ?, NULL, '[]', 'edit-proposal', 'pending', ?)`,
+    ).bind(proposalId, row.workspace_id, auth.userId, `client:${row.directory_id ?? INTERNAL_CLIENT}`, `edit:${row.id}`, content, Number(row.clearance_level), Date.now()).run();
+    adminAuditEvent(env, ctx, { actorId: auth.userId, workspaceId: row.workspace_id, event: "edit_proposed", payload: { id: proposalId, entry: row.id } });
+    return json({ ok: true, applied: false, id: proposalId, owner: head ? head.owner : null });
   }
 
   // POST /admin/view-as/start { id }: só registra a decisão de ver como outra pessoa (a visão em si é o header X-View-As).

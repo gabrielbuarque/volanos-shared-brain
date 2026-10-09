@@ -88,5 +88,22 @@ describe("prompt de resposta", () => {
     expect(ANSWER_PROMPT).toMatch(/\[not-found\]/);
     expect(ANSWER_PROMPT).toMatch(/Never complete an answer with general knowledge/);
     expect(ANSWER_PROMPT).toMatch(/No closing question/);
+    expect(ANSWER_PROMPT).toMatch(/Precedence: a source marked verified/);
+  });
+});
+
+describe("GET /recall: todos os clientes", () => {
+  it("sem ?client= busca em todos os clientes que a pessoa lê, e o conflito só vale dentro de um cliente", async () => {
+    const r = await recall(DEMO_TOKENS.p8, "meta de leads qualificados");
+    expect(r.client).toBeNull();
+    const clientsSeen = new Set(r.results.map((s) => s.client_id));
+    expect(clientsSeen.has("demo-dir-dique") && clientsSeen.has("demo-dir-aurora")).toBe(true);
+    const dir = new Map(r.results.map((s) => [s.id, s.client_id]));
+    for (const c of r.conflicts) expect(dir.get(c.a)).toBe(dir.get(c.b));
+  });
+
+  it("ainda respeita o nível: como P8, nada de P0 aparece mesmo sem escopo de cliente", async () => {
+    const r = await recall(DEMO_TOKENS.p8, "margem do contrato");
+    expect(r.results.every((s) => s.clearance_level >= 8)).toBe(true);
   });
 });

@@ -14,6 +14,8 @@
     try { return JSON.parse(localStorage.getItem(MODEL_KEY) || 'null') } catch (e) { return null }
   }
 
+  const failText = (e) => g.Parts.failText(e)
+
   const when = (ms) => formatDateUI(ms, { day: '2-digit', month: 'short', year: 'numeric' })
 
   /* ---------- Pessoas ---------- */
@@ -21,6 +23,39 @@
   /** Uma linha da matriz: P0..P12 preenchido onde a pessoa lê (nível dela até P12). */
   function matrixCells(floor, name) {
     return Array.from({ length: 13 }, (_, n) => h('span', { class: 'matrix__cell' + (n >= floor ? ' is-read' : ''), role: 'img', 'aria-label': n >= floor ? t('admin.matrix.reads', { name, level: `P${n}` }) : t('admin.matrix.blocked', { name, level: `P${n}` }) }))
+  }
+
+  function copyButton(text, label) {
+    return Button({ variant: 'secondary', size: 'sm', onClick: async () => { try { await navigator.clipboard.writeText(text); g.VUI.toast(t('admin.copied')) } catch (e) { g.VUI.toast(t('admin.copyManual')) } } }, label)
+  }
+
+  function tokenDialog(m) {
+    const body = h('div', null, h('p', null, t('admin.tokenBody')))
+    const actions = h('div', { class: 'v-dialog__actions' })
+    const d = g.VUI.openDialog({ title: t('admin.tokenTitle', { name: m.name }) }, body, actions)
+    mount(actions, Button({ variant: 'ghost', onClick: () => d.close() }, t('common.cancel')), Button({ onClick: async () => {
+      try {
+        const r = await Session.api('/team/members/token', { method: 'POST', body: { id: m.userId } })
+        mount(body, h('p', null, t('admin.tokenShown')), Card({ variant: 'outline', class: 'linkbox' }, h('code', null, r.token), copyButton(r.token, t('admin.tokenCopy'))))
+        mount(actions, Button({ onClick: () => d.close() }, t('common.close')))
+      } catch (e) { g.VUI.toast(failText(e)) }
+    } }, t('admin.token')))
+  }
+
+  function removeDialog(m, done) {
+    const d = g.VUI.openDialog({ title: t('admin.removeTitle', { name: m.name }) }, h('p', null, t('admin.removeBody')),
+      h('div', { class: 'v-dialog__actions' }, Button({ variant: 'ghost', onClick: () => d.close() }, t('common.cancel')), Button({ onClick: async () => {
+        try { await Session.api('/team/members/remove', { method: 'POST', body: { id: m.userId } }); d.close(); g.VUI.toast(t('admin.removedOk')); done() } catch (e) { g.VUI.toast(failText(e)) }
+      } }, t('admin.remove'))))
+  }
+
+  /** "Mais": ações que mexem na conta. Ficam atrás de um disclosure para a linha da matriz continuar limpa. */
+  function moreActions(m, host) {
+    const suspend = Button({ variant: 'ghost', size: 'sm', onClick: async () => {
+      try { await Session.api('/team/members/suspend', { method: 'POST', body: { id: m.userId, suspended: !m.suspended } }); g.VUI.toast(t(m.suspended ? 'admin.restoredOk' : 'admin.suspendedOk')); peoplePanel(host) } catch (e) { g.VUI.toast(failText(e)) }
+    } }, t(m.suspended ? 'admin.restore' : 'admin.suspend'))
+    return h('details', { class: 'matrix__more' }, h('summary', null, t('admin.more')),
+      h('div', { class: 'matrix__morelist' }, suspend, Button({ variant: 'ghost', size: 'sm', onClick: () => tokenDialog(m) }, t('admin.token')), Button({ variant: 'ghost', size: 'sm', onClick: () => removeDialog(m, () => peoplePanel(host)) }, t('admin.remove'))))
   }
 
   async function peoplePanel(host) {
@@ -36,7 +71,7 @@
           const level = Select({ label: t('admin.level'), options: levelOptions(), value: '12' })
           return Card({ variant: 'outline', class: 'personrow' }, h('strong', null, m.name), h('span', { class: 'v-caption' }, m.email || ''), level,
             Button({ variant: 'secondary', size: 'sm', onClick: async () => {
-              try { await Session.api('/team/members/approve', { method: 'POST', body: { id: m.userId, clearance_floor: Number(level.control.value) } }); g.VUI.toast(t('admin.approved')); peoplePanel(host) } catch (e) { g.VUI.toast(e.message) }
+              try { await Session.api('/team/members/approve', { method: 'POST', body: { id: m.userId, clearance_floor: Number(level.control.value) } }); g.VUI.toast(t('admin.approved')); peoplePanel(host) } catch (e) { g.VUI.toast(failText(e)) }
             } }, t('admin.approve')))
         })) : null
 
@@ -44,17 +79,18 @@
     const rows = active.map((m) => {
       const floor = m.role === 'admin' ? 0 : m.clearanceFloor
       const select = Select({ label: t('admin.level'), options: levelOptions(), value: String(floor), disabled: m.role === 'admin', class: 'matrix__select', onChange: async (e) => {
-        try { await Session.api('/permissions/members/clearance', { method: 'POST', body: { id: m.userId, clearance_floor: Number(e.target.value) } }); g.VUI.toast(t('admin.levelSaved', { name: m.name })); peoplePanel(host) } catch (err) { g.VUI.toast(err.message) }
+        try { await Session.api('/permissions/members/clearance', { method: 'POST', body: { id: m.userId, clearance_floor: Number(e.target.value) } }); g.VUI.toast(t('admin.levelSaved', { name: m.name })); peoplePanel(host) } catch (err) { g.VUI.toast(failText(err)) }
       } })
       const direct = Checkbox({ label: t('admin.directPublish'), checked: m.directPublish, onChange: async (e) => {
-        try { await Session.api('/team/members/direct-publish', { method: 'POST', body: { id: m.userId, direct_publish: e.target.checked } }) } catch (err) { e.target.checked = !e.target.checked; g.VUI.toast(err.message) }
+        try { await Session.api('/team/members/direct-publish', { method: 'POST', body: { id: m.userId, direct_publish: e.target.checked } }) } catch (err) { e.target.checked = !e.target.checked; g.VUI.toast(failText(err)) }
       } })
       const canView = m.userId !== Session.me.userId && !m.suspended
       return h('div', { class: 'matrix__row' },
         h('div', { class: 'matrix__who' }, h('strong', null, m.name), m.role === 'admin' ? Tag({ variant: 'outline' }, t('admin.roleAdmin')) : null, m.suspended ? Tag({ variant: 'neutral' }, t('admin.suspended')) : null, h('span', { class: 'v-caption' }, m.email || '')),
         h('div', { class: 'matrix__cells' }, matrixCells(floor, m.name)),
         h('div', { class: 'matrix__tools' }, select, m.role === 'admin' ? null : direct,
-          canView ? Button({ variant: 'ghost', size: 'sm', onClick: () => g.Shell.enterViewAs({ id: m.userId, name: m.name, clearanceFloor: floor }) }, t('admin.viewAs')) : null),
+          canView ? Button({ variant: 'ghost', size: 'sm', onClick: () => g.Shell.enterViewAs({ id: m.userId, name: m.name, clearanceFloor: floor }) }, t('admin.viewAs')) : null,
+          m.userId !== Session.me.userId ? moreActions(m, host) : null),
       )
     })
     mount(host, pendingBlock,
@@ -71,9 +107,11 @@
     const preview = h('p', { class: 'v-caption' })
     const linkHost = h('div', { 'aria-live': 'polite' })
     const listHost = h('div')
+    const openEmails = new Set()
     const paintPreview = () => { preview.textContent = t('admin.invite.preview', { text: App.levelText(Number(level.control.value)) }) }
     level.control.addEventListener('change', paintPreview)
     paintPreview()
+    email.control.addEventListener('input', () => email.clearError())
     const showLink = (link, to) => {
       const copy = Button({ variant: 'secondary', size: 'sm', onClick: async () => { try { await navigator.clipboard.writeText(link); g.VUI.toast(t('admin.invite.copied')) } catch (e) { g.VUI.toast(t('admin.invite.copyManual')) } } }, t('admin.invite.copy'))
       mount(linkHost, Card({ variant: 'outline', class: 'linkbox' }, h('p', { class: 'v-caption' }, t('admin.invite.linkFor', { email: to })), h('code', null, link), copy))
@@ -81,23 +119,26 @@
     async function list() {
       try {
         const { invites } = await Session.api('/team/invites')
+        openEmails.clear()
+        invites.forEach((i) => openEmails.add(String(i.email).toLowerCase()))
         mount(listHost, invites.length ? h('div', { class: 'admin__list' }, invites.map((i) => h('div', { class: 'listrow' },
           h('span', null, i.email), LevelPill({ level: i.clearance_floor, size: 'sm' }), h('span', { class: 'v-caption' }, t('admin.invite.expires', { when: when(i.expires_at) })),
-          Button({ variant: 'ghost', size: 'sm', onClick: async () => { try { const r = await Session.api('/team/invites/resend', { method: 'POST', body: { id: i.id } }); showLink(r.link, i.email) } catch (e) { g.VUI.toast(e.message) } } }, t('admin.invite.resend')),
-          Button({ variant: 'ghost', size: 'sm', onClick: async () => { try { await Session.api('/team/invites/cancel', { method: 'POST', body: { id: i.id } }); list() } catch (e) { g.VUI.toast(e.message) } } }, t('admin.invite.cancel')),
+          Button({ variant: 'ghost', size: 'sm', onClick: async () => { try { const r = await Session.api('/team/invites/resend', { method: 'POST', body: { id: i.id } }); showLink(r.link, i.email) } catch (e) { g.VUI.toast(failText(e)) } } }, t('admin.invite.resend')),
+          Button({ variant: 'ghost', size: 'sm', onClick: async () => { try { await Session.api('/team/invites/cancel', { method: 'POST', body: { id: i.id } }); list() } catch (e) { g.VUI.toast(failText(e)) } } }, t('admin.invite.cancel')),
         ))) : h('p', { class: 'v-caption' }, t('admin.invite.none')))
       } catch (e) { mount(listHost, Parts.ErrorState({ onRetry: list })) }
     }
-    const form = h('form', { class: 'admin__form', onSubmit: async (e) => {
+    const form = h('form', { class: 'admin__form', novalidate: true, onSubmit: async (e) => {
       e.preventDefault()
       const to = email.control.value.trim()
-      if (!to) return
+      if (!to || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) { email.setError(t('admin.invite.emailInvalid')); email.control.focus(); return }
+      if (openEmails.has(to.toLowerCase())) { email.setError(t('admin.invite.emailOpen')); email.control.focus(); return }
       try {
         const r = await Session.api('/team/invites', { method: 'POST', body: { email: to, role: role.control.value, clearance_floor: Number(level.control.value) } })
         showLink(r.link, to)
         email.control.value = ''
         list()
-      } catch (err) { g.VUI.toast(err.message) }
+      } catch (err) { g.VUI.toast(failText(err)) }
     } }, email, role, level, preview, Button({ type: 'submit' }, t('admin.invite.create')))
     mount(host, h('section', { class: 'admin__section' }, Eyebrow({}, t('admin.invite.title')), h('p', { class: 'v-caption' }, t('admin.invite.note')), form, linkHost), h('section', { class: 'admin__section' }, Eyebrow({}, t('admin.invite.open')), listHost))
     list()
@@ -174,8 +215,8 @@
         h('div', { class: 'admin__list' }, integrations.map((i) => h('div', { class: 'listrow listrow--wide' },
           h('span', null, h('strong', null, i.name), h('br'), h('span', { class: 'v-caption' }, i.connected ? [t('admin.int.connected'), i.workspaceName ? ` · ${i.workspaceName}` : '', i.lastSyncedAt ? ` · ${t('admin.int.synced', { when: when(i.lastSyncedAt) })}` : ''] : t('admin.int.notConnected'), i.lastSyncError ? ` · ${i.lastSyncError}` : '')),
           i.connected
-            ? h('span', { class: 'listrow__actions' }, Button({ variant: 'secondary', size: 'sm', onClick: async () => { try { await Session.api(`/integrations/${i.provider}/sync`, { method: 'POST', body: {} }); g.VUI.toast(t('admin.int.syncDone')); integrationsPanel(host) } catch (e) { g.VUI.toast(e.message) } } }, t('admin.int.sync')),
-              Button({ variant: 'ghost', size: 'sm', onClick: async () => { try { await Session.api(`/integrations/${i.provider}/disconnect`, { method: 'POST', body: {} }); integrationsPanel(host) } catch (e) { g.VUI.toast(e.message) } } }, t('admin.int.disconnect')))
+            ? h('span', { class: 'listrow__actions' }, Button({ variant: 'secondary', size: 'sm', onClick: async () => { try { await Session.api(`/integrations/${i.provider}/sync`, { method: 'POST', body: {} }); g.VUI.toast(t('admin.int.syncDone')); integrationsPanel(host) } catch (e) { g.VUI.toast(failText(e)) } } }, t('admin.int.sync')),
+              Button({ variant: 'ghost', size: 'sm', onClick: async () => { try { await Session.api(`/integrations/${i.provider}/disconnect`, { method: 'POST', body: {} }); integrationsPanel(host) } catch (e) { g.VUI.toast(failText(e)) } } }, t('admin.int.disconnect')))
             : Button({ variant: 'secondary', size: 'sm', onClick: () => connectDialog(i, () => integrationsPanel(host)) }, t('login.connect')))))))
     } catch (e) { mount(host, Parts.ErrorState({ onRetry: () => integrationsPanel(host) })) }
   }

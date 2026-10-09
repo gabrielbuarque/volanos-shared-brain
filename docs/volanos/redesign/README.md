@@ -26,6 +26,7 @@ Removidos: Memories, grafo, coach, patterns, brief, Remember, tema escuro e 41 t
 - `GET /recall?client=<id|internal>`: o escopo de cliente **soma-se** ao filtro de nível, workspace e ACL (`src/recall/search.ts`, `src/lib/clients.ts`). Por fonte devolve `client_id`, `author`, `updated_at`, `clearance_level`, `review_state`, `stale`; mais `conflicts` (pares divergentes). Contrato em `test/integration/recall-contract.test.ts`.
 - `GET /clients`: só clientes em que a pessoa lê ao menos uma fonte; contagem e data vêm só do que ela lê.
 - `GET /client/entries`: Canon e fontes do cliente, filtráveis por nível.
+- `POST /entry/propose-edit` (proposta de edição de documento; admin e publicação direta aplicam na hora), `GET /entry/versions` agora traz `actor_name`.
 - `POST /conflicts/flag`, `POST /canon/propose`, `POST /contributions/suggest`, `POST /contributions/submit`, `GET /admin/audit`, `POST /admin/view-as/start`.
 - Header `X-View-As` (admin): a identidade da pessoa escolhida entra no **mesmo** caminho de filtro. Somente leitura (a única exceção é `POST /chat`).
 - `/entry` passou a devolver `client_id` e `review_state`. `/permissions/me` devolve nome, e-mail e `viewAs`.
@@ -59,10 +60,63 @@ Removidos: Memories, grafo, coach, patterns, brief, Remember, tema escuro e 41 t
 
 **Servidor de desenvolvimento em Node.** O `wrangler dev` não sobe neste Windows (`spawn UNKNOWN` do workerd; é também por isso que 2 testes de ambiente falham aqui). `npm run dev:node` roda o mesmo Worker sobre SQLite em memória com o seed de demonstração e **IA simulada**. Serve para revisar a interface, nunca para produção.
 
+## Segunda rodada: testes no navegador, HIG da Apple e PRD
+
+Referência do PRD: `Volanos_Shared_Brain_Arquitetura_e_Plano.pdf` (15 slides; não há outro arquivo de PRD na pasta). A interface foi testada no navegador com scripts em `scripts/e2e/` (Edge via CDP, servidor `npm run dev:node`): pergunta e resposta, estados de erro, parar, troca de cliente no meio da resposta, sessão expirada, entradas estranhas, convites, ver como, matriz, ciclo completo "Tito contribui, Letícia encontra", teclado e medição de HIG.
+
+### O que o teste achou e foi corrigido
+
+| Achado | Correção |
+| --- | --- |
+| Perguntar exigia escolher o cliente antes. Quem não sabe onde está o conteúdo não descobria nada (o PRD pede descobrir sem localizar quem estava na conversa) | Seletor ganhou **Todos os clientes** (padrão). Sem escopo de cliente; nível, workspace e ACL continuam no SQL. Em "todos", os atalhos preenchem o começo da pergunta |
+| Conflito entre clientes diferentes seria falso (a meta de um não contradiz a do outro) | O par só conta dentro do mesmo cliente (`findSourceConflicts`) |
+| O PRD define precedência (canônica do owner, depois fonte oficial, depois recência, repetição não decide). A tela só dizia "mais recente" | Cartão do conflito mostra quem **prevalece e por quê** (canônica, revisada, mais recente) e a regra. O prompt de resposta passou a exigir a mesma ordem. A autoridade por papel do autor ainda não entra (o `/recall` não devolve o papel) |
+| Sem brain pessoal. O PRD tem Private + Shared e "nem o admin acessa" | Contribuir ganhou **Salvar só para mim** e a aba **Meu espaço** (listar, enviar ao Shared Brain, esquecer). Fontes privadas levam a etiqueta Privado e a resposta avisa. Em "Salvar no Canon" as notas privadas ficam de fora. Verificado: o admin não encontra a nota de outra pessoa |
+| Sem histórico, diff nem rollback. O PRD chama versionamento de obrigatório | Documento ganhou **Histórico** (versões, quem, o que mudou, restaurar) usando `/entry/versions` e `/entry/restore`, que já filtram por nível |
+| Sem edição. O fluxo do PRD é propor, revisar com diff, aprovar | **Propor edição** no documento. A fila mostra o que muda (diff). Admin e quem tem publicação direta aplicam na hora. Nova rota `POST /entry/propose-edit`; aprovar usa `applyDocumentEdit`, que guarda a versão antiga e **preserva as quebras de linha** (o `/update` do upstream achata espaços e destruiria cabeçalhos e listas) |
+| Admin sem suspender, remover nem gerar token (existiam no backend) | Em Pessoas, "Mais": suspender/restaurar, novo token (mostrado uma vez) e remover (confirmação) |
+| Convite: e-mail inválido aparecia como balão nativo; duplicado criava outro; erros do servidor chegavam em inglês | Erro em linha junto do campo, aviso de convite já aberto, mensagens em português |
+| Copy insinuava conteúdo restrito ("Ele não existe ou está acima do seu nível", "Você só vê fontes do seu nível") | Trocado por texto neutro. Documento ou cliente fora do alcance responde igual a um que não existe |
+| Primeira frase repetida como primeiro ponto | A resposta descarta o ponto idêntico à frase direta |
+| Conflito sem valor extraído mostrava o título duas vezes | O valor só aparece quando existe |
+| Visão "ver como" ainda deixava abrir Contribuir (escrita) | Contribuir some e a rota volta para Perguntar |
+| Pergunta de 30 mil caracteres estourava a URL (431) | Campo limitado a 2.000 caracteres |
+| Título da página igual em todas as telas | `Perguntar · Volanos Shared Brain`, etc. |
+
+### Auditoria pelo HIG (medida no navegador)
+
+| Critério | Antes | Depois |
+| --- | --- | --- |
+| Alvos de toque no celular (44 pt) | abas, botões, chips e seletor com 27 a 40 px | 44 px em tudo que se toca |
+| Campos no celular | 13 e 15 px (o iOS amplia a tela ao focar) | 16 px |
+| Texto mínimo | 10 e 11 px | 12 px |
+| Contraste do texto funcional | 3,9:1 a 4,4:1 (cinza do DS) | acima de 4,5:1 (`--text-secondary`) |
+| Navegação no celular | linha de links cortada ("ADMI") | barra inferior com quatro áreas e área segura |
+| Pular para o conteúdo | não havia | link de pulo |
+| Foco do teclado | anel presente | anel presente; diálogo prende o foco e o Esc fecha |
+
+**Desvio do DS para revisar com a Karen:** o cinza dos kickers (`--grey-eyebrow`, #7B7B7B) dá 3,9:1 sobre o Off-White e o das legendas 4,4:1. Para texto de navegação, abas, legendas, metadados e rótulos usamos o navy a 70% (`--text-secondary`, #4A5670). O anel de foco em Light Blue continua com cerca de 1,6:1 (pendência acima).
+
+### O que o PRD pede e ainda não está na interface
+
+| PRD | Situação |
+| --- | --- |
+| Tenants (Volanos, Jori, IndiqAI) com troca de organização | Não. O backend tem workspaces (`/team/workspaces`), mas o modelo de cliente do redesign é o diretório. Decidir se Jori e IndiqAI são clientes ou tenants antes de desenhar |
+| Revisão: "pedir contexto" além de aprovar, editar e recusar | Não. Precisa de um estado novo na fila (hoje só pendente, aprovado, recusado) |
+| Revisão: diff para conteúdo novo e "impacto" | Diff só existe para edição de documento. Impacto (o que muda nas respostas) não existe |
+| Ciclo de vida: ativo, arquivado, substituído, rejeitado | Mostramos versão ativa e histórico. Arquivar e substituir pela interface não existe (o backend tem `archive` e `merge`) |
+| Proveniência por agente ("alterada pelo agente de André") | Mostramos pessoa, data e origem; o agente não é registrado |
+| Autoridade da fonte na precedência (owner ou gerente pesam mais que nota casual) | Só canônica, revisada e recência |
+| Padrão de captura por pessoa (privado ou compartilhado) | Existe no backend (`default-share`); a interface sempre pergunta |
+| Atividade do time e padrões semanais | Saíram da navegação, como o prompt pediu; seguem no backend |
+| Edição de nota privada | A nota é salva achatada (o `/capture` do upstream junta linhas). Vale revisar antes de usar notas longas |
+
 ## Ferramentas
 
 - `scripts/seed-demo-volanos.mjs`: seed sintético (Dique, Aurora Têxtil, Volanos interno; P0, P6, P8, P12; metas contraditórias; fonte com mais de 180 dias). `--out arquivo.sql` ou `--apply` (D1 local; recusa remoto).
 - `scripts/capture-screens.mjs --set antes|depois [--audit]`: capturas em 1280 e 390px via Edge/CDP e auditoria de marca no navegador (`scripts/brand-audit-page.js`).
+- `scripts/e2e/*.mjs`: testes ponta a ponta no navegador contra `npm run dev:node` (`node scripts/e2e/qa.mjs`, `cycle.mjs`, `hig.mjs`, `stress.mjs`, `keyboard.mjs`...). Ferramenta de revisão, não entra no `npm test`.
+- `test/integration/edit-proposal.test.ts`: proposta de edição (diff, versão, quebras de linha, nível, dono do cliente).
 - `test/ui/brand-checklist.test.ts`: portão estático (cores só em tokens, sombras, fontes, movimento, voz dos catálogos, paridade pt/en).
 - `test/integration/demo-seed.test.ts`: a mesma pergunta sobre a Dique como P0 inclui o trecho P0; como P8 não inclui nem sinaliza; trocar de cliente não traz nada da Dique.
 

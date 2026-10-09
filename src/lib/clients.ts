@@ -66,11 +66,14 @@ export interface SourceConflict {
  */
 export async function findSourceConflicts(
   env: Env,
-  sources: readonly { id: string; content: string }[],
+  sources: readonly { id: string; content: string; directoryId?: string | null }[],
 ): Promise<SourceConflict[]> {
   const out = new Map<string, SourceConflict>();
   const key = (x: string, y: string) => (x < y ? `${x}|${y}` : `${y}|${x}`);
   const ids = sources.map((s) => s.id);
+  // Clientes diferentes têm métricas próprias: a meta de um não contradiz a meta do outro.
+  const dirOf = new Map(sources.map((s) => [s.id, s.directoryId ?? null] as const));
+  const sameClient = (x: string, y: string) => dirOf.get(x) === dirOf.get(y);
   if (ids.length > 1) {
     const marks = ids.map(() => "?").join(", ");
     try {
@@ -78,6 +81,7 @@ export async function findSourceConflicts(
         `SELECT a_id, b_id, detail FROM aging_suggestions WHERE kind = 'contradiction' AND status = 'open' AND a_id IN (${marks}) AND b_id IN (${marks})`,
       ).bind(...ids, ...ids).all<{ a_id: string; b_id: string; detail: string }>();
       for (const r of results ?? []) {
+        if (!sameClient(r.a_id, r.b_id)) continue;
         let d: { metric?: string; a_values?: string[]; b_values?: string[] } = {};
         try { d = JSON.parse(r.detail); } catch { /* detalhe ilegível: o par ainda vale */ }
         out.set(key(r.a_id, r.b_id), { a: r.a_id, b: r.b_id, metric: d.metric ?? "", a_value: (d.a_values ?? [])[0] ?? "", b_value: (d.b_values ?? [])[0] ?? "", origin: "aging" });
@@ -86,7 +90,7 @@ export async function findSourceConflicts(
   }
   for (let i = 0; i < sources.length; i++) {
     for (let j = i + 1; j < sources.length; j++) {
-      if (out.has(key(sources[i].id, sources[j].id))) continue;
+      if (!sameClient(sources[i].id, sources[j].id) || out.has(key(sources[i].id, sources[j].id))) continue;
       const [d] = findDivergences(sources[i].content, sources[j].content);
       if (d) out.set(key(sources[i].id, sources[j].id), { a: sources[i].id, b: sources[j].id, metric: d.a, a_value: d.aValues[0] ?? "", b_value: d.bValues[0] ?? "", origin: "live" });
     }

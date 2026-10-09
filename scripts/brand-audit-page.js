@@ -25,7 +25,7 @@
   const okColor = (c) => !c || c === 'rgba(0, 0, 0, 0)' || c === 'transparent' || palette.has(c) || isNavyAlpha(c) || isWhiteAlpha(c)
   const findings = []
   const label = (el) => `${el.tagName.toLowerCase()}${el.className && typeof el.className === 'string' ? '.' + el.className.trim().split(/\s+/).slice(0, 2).join('.') : ''}`
-  const UPPER_OK = /conflict__vs|v-eyebrow|v-btn|v-tabs__tab|v-field__label|topbar__link|v-toast__title|sg-|v-badge|matrix__head/
+  const UPPER_OK = /conflict__vs|v-eyebrow|v-btn|v-tabs__tab|v-field__label|topbar__link|v-toast__title|sg-|v-badge|matrix__head|matrix__more/
   const seen = new Set()
   const add = (kind, el, detail) => {
     const k = `${kind}|${label(el)}|${detail}`
@@ -49,7 +49,7 @@
     const font = cs.fontFamily.split(',')[0].replace(/["']/g, '').trim()
     if (!/^(Montserrat|Merriweather)$/.test(font)) add('fonte fora da marca', el, font)
     if (font === 'Merriweather' && !(el.matches('em') && el.closest('.v-lede, .v-statement')) && !el.closest('.v-title-canon')) add('Merriweather fora da virada e do Canon', el, '')
-    if (cs.textTransform === 'uppercase' && !UPPER_OK.test(el.className && typeof el.className === 'string' ? el.className : '') && !el.closest('.v-btn, .v-tabs, .topbar__nav, .sg-toc')) add('caixa alta fora dos kickers', el, '')
+    if (cs.textTransform === 'uppercase' && !UPPER_OK.test(el.className && typeof el.className === 'string' ? el.className : '') && !el.closest('.v-btn, .v-tabs, .topbar__nav, .sg-toc, .matrix__more')) add('caixa alta fora dos kickers', el, '')
     if (el.children.length === 0 && el.textContent && /!|\p{Extended_Pictographic}/u.test(el.textContent) && !el.closest('code, .source__body, .doc__body')) add('exclamação ou emoji', el, el.textContent.trim().slice(0, 30))
   }
   if (document.documentElement.scrollWidth > window.innerWidth + 1) add('rolagem horizontal da página', document.body, `${document.documentElement.scrollWidth}px > ${window.innerWidth}px`)

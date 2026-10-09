@@ -46,7 +46,7 @@
     host.appendChild(h('details', { class: 'source__details' }, h('summary', null, t('adv.levels.edit')), h('div', { class: 'levelrows' }, rows),
       Button({ variant: 'secondary', size: 'sm', onClick: async () => {
         const levels = rows.map((row) => ({ level: Number(row.dataset.level), holders: row.querySelector('[data-f=holders]').value, reads: row.querySelector('[data-f=reads]').value, example: row.querySelector('[data-f=example]').value }))
-        try { const r = await Session.api('/levels', { method: 'PUT', body: { levels } }); App.levels = r.levels; toast(t('adv.levels.saved')) } catch (e) { toast(e.message) }
+        try { const r = await Session.api('/levels', { method: 'PUT', body: { levels } }); App.levels = r.levels; toast(t('adv.levels.saved')) } catch (e) { toast(g.Parts.failText(e)) }
       } }, t('common.save'))))
     return host
   }
@@ -59,7 +59,7 @@
 
   function suggestionCard(s, reload) {
     const side = (x, tag) => h('div', { class: 'conflict__side' }, h('strong', null, `${tag} · ${x.title}`), h('p', { class: 'source__meta' }, `P${x.clearance_level} · ${x.source || ''} · v${x.version} · ${when(x.updated_at)}`), h('p', { class: 'source__body' }, x.excerpt))
-    const resolve = async (action, keep) => { try { await Session.api('/memory/suggestions/resolve', { method: 'POST', body: { id: s.id, action, keep } }); toast(action === 'merge' ? t('adv.health.merged') : t('adv.health.dismissed')); reload() } catch (e) { toast(e.message) } }
+    const resolve = async (action, keep) => { try { await Session.api('/memory/suggestions/resolve', { method: 'POST', body: { id: s.id, action, keep } }); toast(action === 'merge' ? t('adv.health.merged') : t('adv.health.dismissed')); reload() } catch (e) { toast(g.Parts.failText(e)) } }
     return Card({ variant: 'outline', class: 'reviewcard' },
       h('strong', null, s.kind === 'duplicate' ? t('adv.health.duplicate') : t('adv.health.divergent')),
       h('div', { class: 'conflict__pair' }, side(s.a, 'A'), h('div', { class: 'conflict__vs', 'aria-hidden': 'true' }, t('conflict.vs')), side(s.b, 'B')),
@@ -82,8 +82,8 @@
             const on = hh.flags[j.job]
             return h('div', { class: 'listrow listrow--wide' }, h('span', null, h('strong', null, t('adv.health.job.' + j.job)), h('br'), h('span', { class: 'v-caption' }, t('adv.health.jobHint.' + j.job))),
               h('span', { class: 'listrow__actions' }, h('span', { class: 'v-caption' }, on ? t('adv.health.on') : t('adv.health.off')),
-                Button({ variant: 'secondary', size: 'sm', onClick: async () => { try { await Session.api('/config', { method: 'PATCH', body: { [j.key]: on ? 'off' : 'on' } }); load() } catch (e) { toast(e.message) } } }, on ? t('adv.health.turnOff') : t('adv.health.turnOn')),
-                Button({ variant: 'ghost', size: 'sm', disabled: !on, onClick: async () => { try { const r = await Session.api('/admin/aging/run', { method: 'POST', body: { job: j.job } }); toast(t('adv.health.ran', { scanned: r.scanned, created: r.created })); load() } catch (e) { toast(e.message) } } }, t('adv.health.runNow'))))
+                Button({ variant: 'secondary', size: 'sm', onClick: async () => { try { await Session.api('/config', { method: 'PATCH', body: { [j.key]: on ? 'off' : 'on' } }); load() } catch (e) { toast(g.Parts.failText(e)) } } }, on ? t('adv.health.turnOff') : t('adv.health.turnOn')),
+                Button({ variant: 'ghost', size: 'sm', disabled: !on, onClick: async () => { try { const r = await Session.api('/admin/aging/run', { method: 'POST', body: { job: j.job } }); toast(t('adv.health.ran', { scanned: r.scanned, created: r.created })); load() } catch (e) { toast(g.Parts.failText(e)) } } }, t('adv.health.runNow'))))
           })),
           [...dup.suggestions, ...con.suggestions].length ? h('div', { class: 'reviewlist' }, [...dup.suggestions, ...con.suggestions].map((x) => suggestionCard(x, load))) : h('p', { class: 'v-caption' }, t('adv.health.nothing')))
       } catch (e) { mount(host, Eyebrow({}, t('adv.health.title')), Parts.ErrorState({ onRetry: load })) }
@@ -112,7 +112,7 @@
             Button({ variant: 'secondary', size: 'sm', onClick: async () => {
               const r = repo.control.value.trim()
               if (r && !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(r)) { toast(t('adv.export.repoFormat')); return }
-              try { await Session.api('/config', { method: 'PATCH', body: { EXPORT_REPO: r, EXPORT_BRANCH: branch.control.value.trim() || 'main' } }); toast(t('adv.export.saved')); load() } catch (e) { toast(e.message) }
+              try { await Session.api('/config', { method: 'PATCH', body: { EXPORT_REPO: r, EXPORT_BRANCH: branch.control.value.trim() || 'main' } }); toast(t('adv.export.saved')); load() } catch (e) { toast(g.Parts.failText(e)) }
             } }, t('common.save')),
             Button({ variant: 'secondary', size: 'sm', disabled: !st.enabled, onClick: async (e) => {
               e.currentTarget.disabled = true

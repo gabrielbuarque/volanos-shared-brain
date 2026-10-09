@@ -12,7 +12,7 @@
   const NAV = [
     { id: 'perguntar', label: 'nav.ask', screen: 'AskScreen' },
     { id: 'clientes', label: 'nav.clients', screen: 'ClientsScreen' },
-    { id: 'contribuir', label: 'nav.contribute', screen: 'ContributeScreen' },
+    { id: 'contribuir', label: 'nav.contribute', screen: 'ContributeScreen', writes: true },
     { id: 'admin', label: 'nav.admin', screen: 'AdminScreen', admin: true },
   ]
 
@@ -25,6 +25,8 @@
   }
 
   function canSee(item) {
+    // Sob "ver como" a sessão é somente leitura: Admin e Contribuir saem.
+    if (item.writes && Session.viewAs) return false
     return !item.admin || (realMe && realMe.role === 'admin' && !Session.viewAs)
   }
 
@@ -33,8 +35,7 @@
   }
 
   function clientSelect() {
-    const options = [...App.clients.map((c) => ({ value: c.id, label: c.name })), { value: App.INTERNAL, label: t('client.internal') }]
-    const wrap = Select({ options, value: App.activeClient, class: 'topbar__client', 'aria-label': t('shell.clientLabel'), onChange: (e) => { App.setClient(e.target.value); route() } })
+    const wrap = Select({ options: App.scopeOptions(), value: App.activeClient, class: 'topbar__client', 'aria-label': t('shell.clientLabel'), onChange: (e) => { App.setClient(e.target.value); route() } })
     return wrap
   }
 
@@ -47,6 +48,7 @@
       h('p', null, h('strong', null, me.name || t('common.you')), me.email ? [' · ', me.email] : null),
       h('p', null, LevelPill({ level: me.clearanceFloor }), ' ', h('span', { class: 'v-caption' }, levelText)),
       h('div', { class: 'v-field' }, h('span', { class: 'v-field__label' }, t('shell.language')), tabs),
+      h('div', { class: 'v-field' }, h('span', { class: 'v-field__label' }, t('shell.mcp')), h('code', null, String(Session.url || window.location.origin).replace(/\/+$/, '') + '/mcp'), h('span', { class: 'v-field__hint' }, t('shell.mcpHint'))),
       h('div', { class: 'v-dialog__actions' }, Button({ variant: 'ghost', onClick: () => d.close() }, t('common.close')), Button({ variant: 'secondary', onClick: () => Session.signOut() }, t('shell.signOut'))),
     )
   }
@@ -62,6 +64,7 @@
   function chrome(area) {
     const me = Session.me
     return [
+      h('a', { class: 'skip-link', href: '#view', onClick: (e) => { e.preventDefault(); if (viewEl) viewEl.focus() } }, t('shell.skip')),
       h('header', { class: 'topbar' },
         h('a', { class: 'topbar__brand', href: '#/perguntar', 'aria-label': t('shell.home') }, Logo({ width: 128 })),
         h('nav', { class: 'topbar__nav', 'aria-label': t('shell.nav') }, navLinks(area)),
@@ -84,7 +87,8 @@
     if (area === 'doc') screen = g.DocScreen
     if (!screen) { window.location.hash = '#/perguntar'; return }
     screen.render(view, parts)
-    document.title = t('shell.title')
+    const titleKey = area === 'doc' ? 'shell.doc' : item ? item.label : 'nav.ask'
+    document.title = `${t(titleKey)} · ${t('shell.title')}`
   }
 
   async function refreshAll() {
@@ -135,6 +139,7 @@
       }
       loginHost.hidden = true
       appHost.hidden = false
+      if (!window.location.hash || window.location.hash === '#') history.replaceState(null, '', '#/perguntar')
       route()
       if (frag.welcome) { frag.welcome = false; g.LoginScreen.welcome() }
     }

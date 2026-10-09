@@ -43,7 +43,7 @@
       let conflicts = turn.conflicts || []
       if (!sources) {
         const params = new URLSearchParams({ query: turn.query, topK: '6', hops: '1', full: '1' })
-        params.set('client', turn.client)
+        if (App.scopeParam(turn.client)) params.set('client', App.scopeParam(turn.client))
         const data = await Session.api('/recall?' + params, { signal: ctrl.signal })
         sources = data.results || []
         conflicts = data.conflicts || []
@@ -135,12 +135,16 @@
 
   function openCanonDialog(turn) {
     const clients = [{ value: App.INTERNAL, label: t('client.internal') }, ...App.clients.map((c) => ({ value: c.id, label: c.name }))]
-    const select = g.VUI.Select({ label: t('canon.client'), options: clients, value: turn.client })
+    const shared = turn.sources.filter((s) => s.workspace !== 'personal')
+    const hasPrivate = shared.length !== turn.sources.length
+    // Em "todos os clientes", o cliente padrão é o da primeira fonte compartilhada.
+    const fromSources = (shared[0] && shared[0].client_id) || App.INTERNAL
+    const select = g.VUI.Select({ label: t('canon.client'), options: clients, value: turn.client === App.ALL ? fromSources : turn.client })
     const text = g.VUI.Input({ multiline: true, rows: 7, label: t('canon.text'), value: turn.text })
     const submit = Button({ onClick: async () => {
       submit.disabled = true
       try {
-        const r = await Session.api('/canon/propose', { method: 'POST', body: { content: text.control.value, client: select.control.value, source_ids: turn.sources.map((s) => s.id) } })
+        const r = await Session.api('/canon/propose', { method: 'POST', body: { content: text.control.value, client: select.control.value, source_ids: shared.map((s) => s.id) } })
         d.close()
         g.VUI.toast(r.owner && r.owner.name ? t('canon.done', { owner: r.owner.name }) : t('canon.donePlain'), { title: t('canon.doneTitle') })
       } catch (e) {
@@ -148,7 +152,7 @@
         g.VUI.toast(t('error.body'), { title: t('error.title') })
       }
     } }, t('canon.submit'))
-    const d = g.VUI.openDialog({ title: t('canon.title') }, h('p', null, t('canon.body')), select, text, h('div', { class: 'v-dialog__actions' }, Button({ variant: 'ghost', onClick: () => d.close() }, t('common.cancel')), submit))
+    const d = g.VUI.openDialog({ title: t('canon.title') }, h('p', null, t('canon.body')), hasPrivate ? h('p', { class: 'turn__note', role: 'note' }, t('canon.privateWarn')) : null, select, text, h('div', { class: 'v-dialog__actions' }, Button({ variant: 'ghost', onClick: () => d.close() }, t('common.cancel')), submit))
   }
 
   function turnActions(turn) {
@@ -183,6 +187,7 @@
     // done | stopped
     parts.push(Fmt.renderAnswer(turn.text, { max: turn.sources.length, onCite: (n) => highlight(turn, n) }))
     if (turn.status === 'stopped') parts.push(h('p', { class: 'v-caption' }, t('ask.stoppedPartial')))
+    if (turn.sources.some((s) => s.workspace === 'personal')) parts.push(h('p', { class: 'turn__note' }, t('ask.privateNote')))
     if (staleCount) parts.push(h('p', { class: 'turn__note' }, t('ask.staleNote', { days: Parts.STALE_DAYS })))
     for (const c of turn.conflicts) {
       const block = Parts.ConflictBlock(c, byId, { onFlag })
@@ -206,7 +211,7 @@
   }
 
   function composer() {
-    const field = h('textarea', { class: 'v-control composer__field', rows: 2, placeholder: t('ask.placeholder', { client: App.clientName(App.activeClient) }), 'aria-label': t('ask.fieldLabel'), onKeydown: (e) => {
+    const field = h('textarea', { class: 'v-control composer__field', rows: 2, maxlength: 2000, placeholder: t('ask.placeholder', { client: App.clientName(App.activeClient) }), 'aria-label': t('ask.fieldLabel'), onKeydown: (e) => {
       if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit() }
     } })
     const submit = () => { const q = field.value; field.value = ''; ask(q) }
@@ -224,7 +229,15 @@
   function shortcuts() {
     const items = [['proposal', 'ask.shortcut.proposal'], ['summary', 'ask.shortcut.summary'], ['promised', 'ask.shortcut.promised']]
     return h('div', { class: 'ask__shortcuts', role: 'group', 'aria-label': t('ask.shortcuts') },
-      items.map(([kind, label]) => Tag({ variant: 'outline', onClick: () => ask(shortcutPrompt(kind), { display: shortcutPrompt(kind) }) }, t(label))))
+      items.map(([kind, label]) => Tag({ variant: 'outline', onClick: () => {
+        // Sem um cliente escolhido o atalho não sabe de quem falar: preenche o começo da pergunta e deixa a pessoa completar.
+        if (App.activeClient === App.ALL || App.activeClient === App.INTERNAL) {
+          const f = host.querySelector('.composer__field')
+          if (f) { f.value = t('ask.starter.' + kind); f.focus(); f.setSelectionRange(f.value.length, f.value.length) }
+          return
+        }
+        ask(shortcutPrompt(kind), { display: shortcutPrompt(kind) })
+      } }, t(label))))
   }
 
   function draw() {

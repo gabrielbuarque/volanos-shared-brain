@@ -13,6 +13,20 @@
     if (error) control.setAttribute('aria-invalid', 'true')
     const field = h('div', { class: cx('v-field', klass) }, label ? h('label', { class: 'v-field__label', for: id }, label) : null, extra || control, note)
     field.control = control
+    // Erro em linha, junto do campo: setError troca a dica pelo erro; clearError devolve a dica.
+    let current = note
+    const put = (next) => { if (current) current.replaceWith(next); else field.appendChild(next); current = next }
+    field.setError = (message) => {
+      put(h('span', { class: 'v-field__hint v-field__hint--error', id: hintId, role: 'alert' }, message))
+      control.setAttribute('aria-describedby', hintId)
+      control.setAttribute('aria-invalid', 'true')
+    }
+    field.clearError = () => {
+      control.removeAttribute('aria-invalid')
+      if (hint) { put(h('span', { class: 'v-field__hint', id: hintId }, hint)); return }
+      control.removeAttribute('aria-describedby')
+      if (current) { current.remove(); current = null }
+    }
     return field
   }
 

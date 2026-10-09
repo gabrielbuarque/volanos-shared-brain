@@ -94,6 +94,8 @@
     let list = null
     let listTag = ''
     let lead = true
+    let leadText = ''
+    const same = (x, y) => x.replace(/W+/g, ' ').trim().toLowerCase() === y.replace(/W+/g, ' ').trim().toLowerCase()
     for (const line of lines) {
       const bullet = line.match(/^[-*•]\s+(.*)$/)
       const numbered = line.match(/^\d+[.)]\s+(.*)$/)
@@ -104,12 +106,15 @@
           listTag = tag
           root.appendChild(list)
         }
+        // A primeira frase já diz isto: não repete como primeiro ponto.
+        if (!list.children.length && leadText && same(leadText, (bullet || numbered)[1])) { lead = false; continue }
         list.appendChild(h('li', null, inline((bullet || numbered)[1])))
         lead = false
         continue
       }
       list = null
       const heading = line.match(/^#{1,4}\s+(.*)$/)
+      if (lead && !heading) leadText = line
       root.appendChild(h('p', { class: lead ? 'answer__lead' : heading ? 'answer__sub' : 'answer__p' }, inline(heading ? heading[1] : line)))
       lead = false
     }
@@ -160,6 +165,29 @@
     return root
   }
 
+  /**
+   * Diferença linha a linha entre dois textos (maior subsequência comum). Devolve [{ t: 'same'|'add'|'del', text }].
+   * Textos muito grandes caem para "tudo removido, tudo adicionado": melhor um diff grosso que travar a tela.
+   */
+  function lineDiff(before, after) {
+    const A = String(before || '').replace(/\r/g, '').split('\n')
+    const B = String(after || '').replace(/\r/g, '').split('\n')
+    if (A.length * B.length > 250000) return [...A.map((text) => ({ t: 'del', text })), ...B.map((text) => ({ t: 'add', text }))]
+    const dp = Array.from({ length: A.length + 1 }, () => new Uint16Array(B.length + 1))
+    for (let i = A.length - 1; i >= 0; i--) for (let j = B.length - 1; j >= 0; j--) dp[i][j] = A[i] === B[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1])
+    const out = []
+    let i = 0
+    let j = 0
+    while (i < A.length && j < B.length) {
+      if (A[i] === B[j]) { out.push({ t: 'same', text: A[i] }); i++; j++ }
+      else if (dp[i + 1][j] >= dp[i][j + 1]) out.push({ t: 'del', text: A[i++] })
+      else out.push({ t: 'add', text: B[j++] })
+    }
+    while (i < A.length) out.push({ t: 'del', text: A[i++] })
+    while (j < B.length) out.push({ t: 'add', text: B[j++] })
+    return out
+  }
+
   /** Texto numerado para o /chat: data por extenso, fonte, autor, estado e aviso de idade. */
   function chatContext(sources) {
     return sources
@@ -171,5 +199,5 @@
       .join('\n\n')
   }
 
-  g.Fmt = { titleOf, bodyOf, relativeTime, sourceKind, sourceKindLabel, reviewLabel, joinList, renderAnswer, renderDocument, chatContext }
+  g.Fmt = { titleOf, bodyOf, relativeTime, sourceKind, sourceKindLabel, reviewLabel, joinList, renderAnswer, renderDocument, chatContext, lineDiff }
 })(typeof globalThis !== 'undefined' ? globalThis : window)
