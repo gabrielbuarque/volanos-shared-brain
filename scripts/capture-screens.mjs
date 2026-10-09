@@ -11,7 +11,7 @@
  * a conta indicada em --token (padrão: o dono, admin).
  */
 import { spawn } from "node:child_process";
-import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync, rmSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -22,10 +22,12 @@ const OUT = arg("out", `docs/volanos/redesign/${SET}`);
 const BASE = arg("base", "http://127.0.0.1:8799");
 const TOKEN = arg("token", "dev-owner-token");
 const ONLY = arg("only", "");
+const AUDIT = args.includes("--audit");
 const EDGE = arg("browser", "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe");
 const PORT = 9333;
 const SIZES = [{ tag: "1280", w: 1280, h: 800, mobile: false }, { tag: "390", w: 390, h: 844, mobile: true }];
 
+let auditTotal = 0;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /** Cenas por conjunto. `run(page)` leva a tela ao estado a capturar. */
@@ -54,6 +56,7 @@ function connect(url) {
     const pending = new Map();
     ws.onmessage = (ev) => {
       const msg = JSON.parse(ev.data);
+      if (msg.method && connect.onEvent) connect.onEvent(msg);
       if (msg.id && pending.has(msg.id)) { const { res, rej } = pending.get(msg.id); pending.delete(msg.id); msg.error ? rej(new Error(msg.error.message)) : res(msg.result); }
     };
     ws.onerror = reject;
@@ -75,6 +78,12 @@ async function main() {
   if (!target) throw new Error("Edge não respondeu na porta de depuração");
   const cdp = await connect(target.webSocketDebuggerUrl);
   await cdp.send("Page.enable");
+  await cdp.send("Runtime.enable");
+  const problems = [];
+  connect.onEvent = (m) => {
+    if (m.method === "Runtime.exceptionThrown") problems.push("exceção: " + (m.params.exceptionDetails.exception?.description || m.params.exceptionDetails.text));
+    if (m.method === "Runtime.consoleAPICalled" && m.params.type === "error") problems.push("console.error: " + m.params.args.map((a) => a.value || a.description).join(" "));
+  };
   const page = {
     eval: async (expression) => {
       const r = await cdp.send("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true });
@@ -104,12 +113,24 @@ async function main() {
       await page.goto(scene.path || "/");
       await page.wait(1500);
       await scene.run(page);
-      const shot = await cdp.send("Page.captureScreenshot", { format: "png" });
+      let shot;
+      if (scene.full) {
+        const m = await cdp.send("Page.getLayoutMetrics");
+        const height = Math.min(Math.ceil(m.cssContentSize.height), 12000);
+        shot = await cdp.send("Page.captureScreenshot", { format: "png", captureBeyondViewport: true, clip: { x: 0, y: 0, width: size.w, height, scale: 1 } });
+      } else shot = await cdp.send("Page.captureScreenshot", { format: "png" });
       const file = join(OUT, `${scene.name}-${size.tag}.png`);
       writeFileSync(file, Buffer.from(shot.data, "base64"));
       console.log(`  ${file}`);
+      if (AUDIT) {
+        const found = await page.eval(readFileSync(new URL("./brand-audit-page.js", import.meta.url), "utf8"));
+        auditTotal += found.length;
+        for (const f of found) console.warn(`    marca: ${f}`);
+      }
+      while (problems.length) console.warn(`    ! ${problems.shift()}`);
     }
   }
+  if (AUDIT) { console.log(auditTotal ? `Auditoria de marca: ${auditTotal} achados.` : "Auditoria de marca: nenhum achado."); process.exitCode = auditTotal ? 2 : 0; }
   cdp.close();
   proc.kill();
   await sleep(300);

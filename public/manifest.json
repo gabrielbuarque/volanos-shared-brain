@@ -1,15 +1,15 @@
 {
-    "name": "Second Brain",
-    "short_name": "Second Brain",
-    "start_url": "/",
-    "display": "standalone",
-    "background_color": "#ffffff",
-    "theme_color": "#ffffff",
-    "icons": [
-        {
-            "src": "/icon.png",
-            "sizes": "180x180",
-            "type": "image/png"
-        }
-    ]
+  "name": "Volanos Shared Brain",
+  "short_name": "Shared Brain",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#F5F5F5",
+  "theme_color": "#F5F5F5",
+  "icons": [
+    {
+      "src": "/icon.png",
+      "sizes": "180x180",
+      "type": "image/png"
+    }
+  ]
 }

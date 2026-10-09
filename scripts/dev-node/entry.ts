@@ -24,20 +24,20 @@ const MIME: Record<string, string> = {
   ".svg": "image/svg+xml", ".png": "image/png", ".woff2": "font/woff2", ".ttf": "font/ttf", ".json": "application/json", ".webmanifest": "application/manifest+json",
 };
 
-/** Resposta simulada: primeira fonte como frase-resumo, as demais como pontos, tudo citado. */
+/** Resposta simulada: a primeira fonte vira a frase direta, as demais viram pontos, tudo citado. */
 function fakeAnswer(userMessage: string): string {
   const block = userMessage.split("Relevant memories:")[1] ?? userMessage.split("Fontes:")[1] ?? "";
-  const items: { n: number; body: string }[] = [];
-  let cur: { n: number; body: string } | null = null;
+  const items: { n: number; lines: string[] }[] = [];
+  let cur: { n: number; lines: string[] } | null = null;
   for (const line of block.split("\n")) {
-    const m = line.match(/^(\d{1,2})\. (.*)$/);
-    if (m) { cur = { n: Number(m[1]), body: m[2] }; items.push(cur); }
-    else if (cur && line.trim()) cur.body += " " + line.trim();
+    const m = line.match(/^(\d{1,2})\. \[/);
+    if (m) { cur = { n: Number(m[1]), lines: [] }; items.push(cur); }
+    else if (cur && line.trim() && !line.startsWith("#")) cur.lines.push(line.trim());
   }
-  if (!items.length) return "Não encontrei isso nas fontes.";
-  const clean = (s: string) => s.replace(/^\[[^\]]*\]\s*(\([^)]*\)\s*)?(\[[^\]]*\]\s*)*/, "").replace(/^#+\s*/, "").replace(/\s+/g, " ").trim();
-  const first = clean(items[0].body).split(/(?<=[.!?])\s/)[0];
-  const rest = items.slice(0, 4).map((i) => `- ${clean(i.body).slice(0, 200)} [${i.n}]`).join("\n");
+  if (!items.length) return "[not-found] Nada nas fontes responde isto.";
+  const body = (i: { lines: string[] }) => i.lines.join(" ");
+  const first = body(items[0]).split(/(?<=[.!?])\s/)[0];
+  const rest = items.slice(0, 4).map((i) => `- ${body(i).slice(0, 220)} [${i.n}]`).join("\n");
   return `${first} [${items[0].n}]\n\n${rest}`;
 }
 
@@ -85,6 +85,8 @@ await sqlite.db.exec(demoSeedSql());
 createServer(async (req, res) => {
   try {
     const url = new URL(req.url || "/", `http://127.0.0.1:${PORT}`);
+    const htmlPage = req.method === "GET" && /^\/[a-z-]+$/.test(url.pathname) && !!(await readFile(join(PUBLIC_DIR, url.pathname.slice(1) + ".html")).catch(() => null));
+    if (htmlPage) url.pathname += ".html";
     const looksStatic = req.method === "GET" && (url.pathname === "/" || /^\/(css|js|fonts|assets)\//.test(url.pathname) || /\.[a-z0-9]+$/i.test(url.pathname));
     if (looksStatic) {
       const rel = url.pathname === "/" ? "index.html" : normalize(url.pathname).replace(/^[\\/]+/, "");
