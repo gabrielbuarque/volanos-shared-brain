@@ -23,6 +23,8 @@ export interface RecallMatch {
   workspace?: "personal" | "company" | "system";
   /** Clearance level of the memory (P0 most restricted). Only ever on rows the caller may read. */
   clearance?: number;
+  /** Client (brain_directories id) this memory belongs to; null = Volanos interno. */
+  directoryId?: string | null;
   /** Resolved author label on company-layer matches (shared memories). */
   actorName?: string;
   // Set only on graph-expanded matches (hop > 0): why / when / whence the edge that surfaced this memory.
@@ -96,6 +98,8 @@ export interface RecallInternalOptions {
    * identity, so this cannot name a workspace the caller does not belong to.
    */
   workspaceFilter?: "personal" | "company";
+  /** Client scope ("internal" or a directory id). ANDed with the permission clause; only ever narrows. */
+  clientId?: string;
   /** Narrows reads to one company team workspace (validated at the route edge). */
   teamId?: string;
 }

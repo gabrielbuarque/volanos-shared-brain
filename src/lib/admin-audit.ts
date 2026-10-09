@@ -35,7 +35,11 @@ export type AdminEventName =
   | "export_run"
   | "rebuild_from_export"
   | "aging_job_run"
-  | "aging_suggestion_resolved";
+  | "aging_suggestion_resolved"
+  | "view_as_started"
+  | "conflict_flagged"
+  | "canon_proposed"
+  | "contribution_submitted";
 
 export function adminAuditEvent(
   env: Env,

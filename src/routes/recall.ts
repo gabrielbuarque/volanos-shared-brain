@@ -16,6 +16,8 @@ import { KIND_VALUES, type MemoryKind } from "../memory/kind";
 import { recallEntries } from "../recall/search";
 import type { RerankInfo } from "../recall/reranker";
 import { allowanceFor, snippetOf } from "../recall/snippet";
+import { findSourceConflicts, isStaleSource, listAccessibleClients, parseClientParam, reviewStateOf } from "../lib/clients";
+import { ANSWER_PROMPT } from "../recall/answer-prompt";
 
 /**
  * What /recall says about the reranker: whether it reordered this answer, and how
@@ -147,14 +149,18 @@ export async function handleRecallRoutes(
     // Long memories are shortened by default so API/CLI consumers get a bounded
     // payload. Renderers that show the whole memory (the dashboard) pass full=1.
     const full = ["1", "true", "yes"].includes((url.searchParams.get("full") ?? "").toLowerCase());
+    // Client scope: narrows on top of level, workspace and directory ACL, never replaces them.
+    const clientId = parseClientParam(url.searchParams.get("client"));
 
     const cfg = await resolveConfig(env);
-    const { matches, insight, semanticUnavailable, queryUsed, queryTokens, compoundStale, rerank } = await recallEntries({ query, topK, tag, after, before, kind, hops }, env, ctx, cfg, { identity, workspaceFilter: workspace, teamId: team });
+    const { matches, insight, semanticUnavailable, queryUsed, queryTokens, compoundStale, rerank } = await recallEntries({ query, topK, tag, after, before, kind, hops }, env, ctx, cfg, { identity, workspaceFilter: workspace, teamId: team, clientId });
 
     if (!matches.length) {
       return json({
         ok: true,
         results: [],
+        client: clientId ?? null,
+        conflicts: [],
         ...rerankFields(rerank),
         query_used: queryUsed,
         semantic_unavailable: semanticUnavailable,
@@ -164,9 +170,12 @@ export async function handleRecallRoutes(
       });
     }
 
+    const conflicts = await findSourceConflicts(env, matches.map((m) => ({ id: m.id, content: m.content })));
     return json({
       ok: true,
       query_used: queryUsed,
+      client: clientId ?? null,
+      conflicts,
       ...rerankFields(rerank),
       compound_stale: compoundStale ?? null,
       results: matches.map((m, i) => {
@@ -189,6 +198,10 @@ export async function handleRecallRoutes(
           workspace: m.workspace ?? null,
           clearance_level: m.clearance ?? null,
           actor_name: m.workspace === "company" ? (m.actorName ?? null) : null,
+          author: m.workspace === "company" ? (m.actorName ?? null) : null,
+          client_id: m.directoryId ?? null,
+          review_state: reviewStateOf(m.tags),
+          stale: isStaleSource(m.updatedAt, cfg.AGING_COLD_DAYS, Date.now(), m.staleAsOf),
           via_provenance: m.viaProvenance ?? null,
           via_type: m.viaType ?? null,
           linked_at: m.viaLinkedAt ?? null,
@@ -216,19 +229,7 @@ export async function handleRecallRoutes(
     // three days of dense decisions "What did I decide recently?" came back as
     // one sentence about an unrelated email: the top match, summarised, with
     // the other four sources ignored.
-    const systemPrompt = `You are a personal memory assistant. Answer the user's question using ONLY the memories provided.
-
-Draw on every memory that bears on the question, not only the closest match — a question about decisions or plans usually has several answers, and reporting one of them is a wrong answer.
-
-Anchor claims in time. The memories are dated; say "On 12 March you decided…" rather than "you decided…". If two memories disagree, say so and lead with the more recent one.
-
-When the answer has several parts, give them as short bullets rather than one crowded sentence.
-
-Cite as you go with the memory's number in square brackets, like [2], matching the numbered list you were given. Cite every claim.
-
-Even if the match scores are low, extract any relevant facts and answer directly. Never say you don't have enough information if the answer exists anywhere in the memories.
-
-Be specific and complete. Concision means leaving out filler, never leaving out facts.`;
+    const systemPrompt = ANSWER_PROMPT;
 
     const userMessage = `Question: ${body.query}\n\nRelevant memories:\n${body.memories}`;
     const cfg = await resolveConfig(env);
@@ -262,6 +263,13 @@ Be specific and complete. Concision means leaving out filler, never leaving out 
     return new Response(streamWithMeta(result), {
       headers: { "Content-Type": "text/event-stream", "X-LLM-Provider": result.provider, "X-LLM-Model": result.model, ...CORS_HEADERS },
     });
+  }
+
+  // GET /clients — only the clients this person can read something in (names included).
+  if (url.pathname === "/clients" && request.method === "GET") {
+    const auth = await requireIdentity(request, env);
+    if (auth instanceof Response) return auth;
+    return json({ ok: true, ...(await listAccessibleClients(env, auth)) });
   }
 
   // GET /llm/models — picker contents: only providers with a configured secret.

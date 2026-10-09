@@ -11,8 +11,8 @@ let w: DemoWorld;
 beforeEach(async () => { w = await setupDemoWorld(); });
 afterEach(() => w.close());
 
-const recall = async (token: string, query: string) => {
-  const res = await w.call(token, "GET", `/recall?query=${encodeURIComponent(query)}&topK=10&full=1`);
+const recall = async (token: string, query: string, client?: string) => {
+  const res = await w.call(token, "GET", `/recall?query=${encodeURIComponent(query)}&topK=10&full=1${client ? `&client=${client}` : ""}`);
   expect(res.status).toBe(200);
   return (await res.json()) as { results: { id: string; content: string }[]; message?: string };
 };
@@ -42,6 +42,26 @@ describe("demo seed", () => {
     expect(asP8.results.filter((r) => r.id === "demo-dique-p0-margem")).toHaveLength(0);
     expect(asP8.message).toBe(nothing.message);
     expect(Object.keys(asP8).sort()).toEqual(Object.keys(nothing).sort());
+  });
+
+  it("mesma pergunta sobre a Dique: P0 recebe o trecho P0, P8 não recebe nem sinal dele", async () => {
+    const q = "margem líquida do contrato";
+    const p0 = await recall(DEMO_TOKENS.p0, q, "demo-dir-dique");
+    expect(p0.results.map((r) => r.id)).toContain("demo-dique-p0-margem");
+    const p8 = await recall(DEMO_TOKENS.p8, q, "demo-dir-dique");
+    const raw = JSON.stringify(p8);
+    expect(p8.results.map((r) => r.id)).not.toContain("demo-dique-p0-margem");
+    expect(raw).not.toMatch(/31%|480 mil|margem-dique|restrit/i);
+    expect(p8.results.every((r) => r.id.startsWith("demo-dique"))).toBe(true);
+  });
+
+  it("trocar para o outro cliente não traz nada da Dique, em nenhum nível", async () => {
+    for (const token of [DEMO_TOKENS.p0, DEMO_TOKENS.p8]) {
+      const r = await recall(token, "meta de leads margem contrato resumo Dique", "demo-dir-aurora");
+      expect(r.results.length).toBeGreaterThan(0);
+      expect(r.results.every((x) => x.id.startsWith("demo-aurora"))).toBe(true);
+      expect(JSON.stringify(r)).not.toMatch(/Dique|1.200|900 leads/);
+    }
   });
 
   it("keeps the model prompts free of text above the asker's level", async () => {

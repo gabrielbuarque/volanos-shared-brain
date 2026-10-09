@@ -11,6 +11,7 @@ import { readableWorkspaces, scopeWhere } from "../lib/scope";
 import { chat, chatText, streamWithMeta } from "../llm/provider";
 import { ANSWER_SYSTEM, answerContext, parseNodeChoice, pruneTree, treePrompt, type ReadableChunk } from "../pageindex";
 import { CORS_HEADERS } from "../lib/http";
+import { ownsClientOf } from "./clients";
 
 /**
  * Routes for the Shared Brain pilot: level texts, the contribution approval
@@ -51,12 +52,16 @@ export async function handleSharedBrainRoutes(
     if (!["pending", "approved", "rejected"].includes(status)) return json({ ok: false, error: "status must be pending, approved or rejected" }, 400);
     const workspaces = readableWorkspaces(auth);
     // Chunks Jev was unsure of (low confidence, ambiguous, no answer) wait for the owner (P0) only.
-    const ownerOnly = identityClearanceFloor(auth) === 0 ? "" : "AND reason = 'above-submitter'";
+    const floor = identityClearanceFloor(auth);
+    // Quem não é P0 vê o que está acima do seu nível E o que é do cliente que ele é dono (proposta de Canon, contribuição).
+    const ownerOnly = floor === 0 ? "" : "AND (reason = 'above-submitter' OR doc_id IN (SELECT 'client:' || id FROM brain_directories WHERE owner_id = ?))";
     const { results } = await env.DB.prepare(
-      `SELECT id, submitter_id, source, source_path, content, suggested_level, confidence, top3, reason, status, final_level, created_at
+      `SELECT id, submitter_id, source, source_path, content, suggested_level, confidence, top3, reason, status, final_level, created_at, doc_id,
+              (SELECT name FROM users WHERE users.id = contributions.submitter_id) AS submitter_name,
+              (SELECT name FROM brain_directories d WHERE 'client:' || d.id = contributions.doc_id) AS client_name
        FROM contributions WHERE status = ? AND suggested_level >= ? ${ownerOnly} AND workspace_id IN (${workspaces.map(() => "?").join(", ")})
        ORDER BY created_at DESC LIMIT 200`,
-    ).bind(status, identityClearanceFloor(auth), ...workspaces).all();
+    ).bind(status, floor, ...(floor === 0 ? [] : [auth.userId]), ...workspaces).all();
     return json({ ok: true, contributions: (results ?? []).map((r: any) => ({ ...r, top3: safeJson(r.top3) })) });
   }
 
@@ -73,7 +78,7 @@ export async function handleSharedBrainRoutes(
   if (path === "/contributions/resolve" && request.method === "POST") {
     const auth = await requireIdentity(request, env);
     if (auth instanceof Response) return auth;
-    let body: { id?: string; action?: string; level?: unknown; content?: unknown };
+    let body: { id?: string; action?: string; level?: unknown; content?: unknown; motive?: unknown };
     try { body = await request.json(); } catch { return json({ ok: false, error: "Invalid JSON" }, 400); }
     if (!body.id?.trim()) return json({ ok: false, error: "id is required" }, 400);
     if (body.action !== "approve" && body.action !== "reject") return json({ ok: false, error: "action must be approve or reject" }, 400);
@@ -83,13 +88,13 @@ export async function handleSharedBrainRoutes(
     const floor = identityClearanceFloor(auth);
     // A request the caller may not see answers exactly like one that does not exist.
     // Chunks Jev was unsure of are the owner's (P0) to decide.
-    if (!row || row.suggested_level < floor || !readableWorkspaces(auth).includes(row.workspace_id) || (floor !== 0 && row.reason !== "above-submitter")) return json({ ok: false, error: "Contribution not found" }, 404);
+    if (!row || row.suggested_level < floor || !readableWorkspaces(auth).includes(row.workspace_id) || (floor !== 0 && row.reason !== "above-submitter" && !(await ownsClientOf(env, auth.userId, String(row.doc_id))))) return json({ ok: false, error: "Contribution not found" }, 404);
     if (row.status !== "pending") return json({ ok: false, error: `Already ${row.status}` }, 409);
 
     const now = Date.now();
     if (body.action === "reject") {
       await env.DB.prepare(`UPDATE contributions SET status = 'rejected', resolved_by = ?, resolved_at = ? WHERE id = ? AND status = 'pending'`).bind(auth.userId, now, row.id).run();
-      adminAuditEvent(env, ctx, { actorId: auth.userId, targetUserId: row.submitter_id, workspaceId: row.workspace_id, event: "contribution_rejected", payload: { id: row.id } });
+      adminAuditEvent(env, ctx, { actorId: auth.userId, targetUserId: row.submitter_id, workspaceId: row.workspace_id, event: "contribution_rejected", payload: { id: row.id, motive: typeof body.motive === "string" ? body.motive.slice(0, 500) : "" } });
       return json({ ok: true, id: row.id, status: "rejected" });
     }
 
@@ -101,8 +106,11 @@ export async function handleSharedBrainRoutes(
     await importExportPayload(env, {
       version: 2,
       entries: [{
-        id: entryId, content, tags: ["bulk-ingest", `doc:${row.doc_id}`, "approved"],
+        id: entryId, content,
+        tags: row.reason === "canon-proposal" ? ["canon", `doc:${row.doc_id}`, "approved", "status:canonical"] : ["bulk-ingest", `doc:${row.doc_id}`, "approved"],
         source: row.source || "bulk-ingest", clearance_level: level, source_path: row.source_path,
+        // doc_id = "client:<diretório>" quando a contribuição veio da interface; o interno não tem diretório.
+        directory_id: String(row.doc_id).startsWith("client:") && row.doc_id !== "client:internal" ? String(row.doc_id).slice("client:".length) : null,
       }],
     }, { limit: 1, writeCtx: { workspaceId: row.workspace_id, actorId: row.submitter_id } });
     await env.DB.batch([
@@ -112,7 +120,8 @@ export async function handleSharedBrainRoutes(
     ]);
     // The decision teaches Jev: Jev's own pick vs. the level the owner chose, with the text.
     const jevPick = (safeJson(row.top3) as { level?: number }[] | null)?.[0]?.level;
-    await recordFeedback(env, {
+    // O Jev só aprende com o que ele classificou; proposta de Canon e envio pela interface não passaram por ele.
+    if (!UI_REASONS.has(String(row.reason))) await recordFeedback(env, {
       workspaceId: row.workspace_id, entryId, text: content,
       jevLevel: typeof jevPick === "number" ? jevPick : null,
       jevConfidence: typeof row.confidence === "number" ? row.confidence : null,
@@ -183,6 +192,9 @@ export async function handleSharedBrainRoutes(
 
   return null;
 }
+
+/** Motivos de fila que nascem na interface, não no classificador. */
+const UI_REASONS = new Set(["canon-proposal", "client-contribution"]);
 
 function safeJson(v: unknown): unknown {
   try { return JSON.parse(String(v)); } catch { return []; }
