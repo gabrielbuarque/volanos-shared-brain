@@ -137,7 +137,10 @@
 
   async function render(host) {
     mount(host, h('p', { class: 'v-caption' }, t('common.loading')))
-    const sections = await Promise.all([modelSection(), Promise.resolve(levelsSection()), healthSection(), exportSection(), Promise.resolve(aboutSection())])
+    const upkeepHost = h('div')
+    g.DataTools.upkeep(upkeepHost)
+    const upkeep = h('section', { class: 'admin__section' }, Eyebrow({}, t('adv.upkeep.title')), h('p', { class: 'v-caption' }, t('adv.upkeep.note')), upkeepHost)
+    const sections = await Promise.all([modelSection(), Promise.resolve(levelsSection()), healthSection(), Promise.resolve(upkeep), exportSection(), Promise.resolve(aboutSection())])
     mount(host, ...sections)
   }
 

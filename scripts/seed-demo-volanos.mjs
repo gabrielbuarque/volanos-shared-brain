@@ -154,6 +154,15 @@ export function demoSeedSql(now = Date.now()) {
       `INSERT OR REPLACE INTO entries (id, content, tags, source, created_at, updated_at, vector_ids, workspace_id, actor_id, clearance_level, directory_id, source_path, recall_count, importance_score) VALUES (${q(e.id)}, ${q(e.content)}, ${q(JSON.stringify(e.tags))}, ${q(e.source)}, ${e.createdAt}, ${e.updatedAt}, '[]', ${company}, ${q(e.author)}, ${e.level}, ${q(e.dir)}, ${q(e.path)}, 0, 0);`,
     );
   }
+  // Conexões explícitas: o grafo só mostra memórias ligadas. Inclui uma ligação com conteúdo P0 para provar o filtro.
+  const EDGES = [
+    ["demo-dique-p12-resumo", "demo-dique-p12-planilha"], ["demo-dique-p12-resumo", "demo-dique-p12-ata"], ["demo-dique-p12-planilha", "demo-dique-p12-ata"],
+    ["demo-dique-p12-resumo", "demo-dique-p8-promessas"], ["demo-dique-p8-promessas", "demo-dique-p6-escopo"], ["demo-dique-p12-resumo", "demo-dique-p0-margem"],
+    ["demo-aurora-p12-resumo", "demo-aurora-p12-meta"], ["demo-aurora-p12-resumo", "demo-aurora-p6-escopo"], ["demo-aurora-p12-resumo", "demo-aurora-p0-margem"],
+  ];
+  EDGES.forEach(([a, b], i) => {
+    out.push(`INSERT OR REPLACE INTO edges (id, source_id, target_id, type, weight, provenance, metadata, created_at, updated_at, workspace_id) VALUES (${q("demo-edge-" + i)}, ${q(a)}, ${q(b)}, 'relates_to', 0.8, 'explicit', '{}', ${now}, ${now}, ${company});`);
+  });
   for (const c of seed.contradictions) {
     out.push(`INSERT OR REPLACE INTO aging_suggestions (id, kind, workspace_id, a_id, b_id, score, detail, owner_id, status, created_at) VALUES (${q(c.id)}, 'contradiction', ${company}, ${q(c.a)}, ${q(c.b)}, 1, ${q(JSON.stringify(c.detail))}, ${q(c.ownerId)}, 'open', ${c.createdAt});`);
   }

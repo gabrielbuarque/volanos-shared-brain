@@ -2,7 +2,7 @@
  * Shell do app: topo fixo (logo, seletor de cliente, perfil com o nível P), quatro áreas
  * (Perguntar, Clientes, Contribuir, Admin) e roteador por hash.
  *
- * Rotas: #/perguntar (padrão), #/clientes, #/clientes/<id>, #/doc/<id>, #/contribuir, #/admin[/<aba>].
+ * Rotas: #/perguntar (padrão), #/clientes, #/clientes/<id>, #/doc/<id>, #/memorias[/<aba>], #/contribuir, #/admin[/<aba>].
  * Admin só aparece para admin. Sob "ver como", o topo ganha uma faixa fixa e o Admin some.
  */
 ;(function (g) {
@@ -12,6 +12,7 @@
   const NAV = [
     { id: 'perguntar', label: 'nav.ask', screen: 'AskScreen' },
     { id: 'clientes', label: 'nav.clients', screen: 'ClientsScreen' },
+    { id: 'memorias', label: 'nav.memories', screen: 'MemoriesScreen' },
     { id: 'contribuir', label: 'nav.contribute', screen: 'ContributeScreen', writes: true },
     { id: 'admin', label: 'nav.admin', screen: 'AdminScreen', admin: true },
   ]
@@ -44,13 +45,37 @@
     const levelText = App.levelText(me.clearanceFloor)
     const loc = getLocale()
     const tabs = Tabs({ variant: 'pill', label: t('shell.language'), value: loc, items: [{ id: 'pt', label: 'PT-BR' }, { id: 'en', label: 'EN' }], onChange: (id) => setLocale(id) })
+    const name = g.VUI.Input({ label: t('shell.displayName'), value: me.name || '', autocomplete: 'name', maxlength: 60 })
+    const saveName = Button({ variant: 'secondary', size: 'sm', onClick: async () => {
+      const v = name.control.value.trim()
+      if (!v) { name.setError(t('team.nameNeeded')); return }
+      try { await Session.api('/team/profile', { method: 'POST', body: { name: v } }); await Session.loadMe(); g.VUI.toast(t('shell.nameSaved')); route() } catch (e) { g.VUI.toast(g.Parts.failText(e)) }
+    } }, t('shell.saveName'))
+    name.control.addEventListener('input', () => name.clearError())
     const d = g.VUI.openDialog({ title: t('shell.account') },
       h('p', null, h('strong', null, me.name || t('common.you')), me.email ? [' · ', me.email] : null),
       h('p', null, LevelPill({ level: me.clearanceFloor }), ' ', h('span', { class: 'v-caption' }, levelText)),
+      name, h('div', { class: 'state__actions' }, saveName),
       h('div', { class: 'v-field' }, h('span', { class: 'v-field__label' }, t('shell.language')), tabs),
       h('div', { class: 'v-field' }, h('span', { class: 'v-field__label' }, t('shell.mcp')), h('code', null, String(Session.url || window.location.origin).replace(/\/+$/, '') + '/mcp'), h('span', { class: 'v-field__hint' }, t('shell.mcpHint'))),
+      Session.viewAs ? null : h('div', { class: 'v-field' }, h('span', { class: 'v-field__label' }, t('shell.data')), g.DataTools.dataButtons()),
       h('div', { class: 'v-dialog__actions' }, Button({ variant: 'ghost', onClick: () => d.close() }, t('common.close')), Button({ variant: 'secondary', onClick: () => Session.signOut() }, t('shell.signOut'))),
     )
+  }
+
+  /** Aviso de busca degradada, como a interface anterior dava no topo: índice ausente ou filtro de camada sem suporte. */
+  function healthBanner() {
+    const hl = App.health
+    if (!hl) return null
+    const vec = hl.vectorize
+    if (vec && vec.ok === false) {
+      const name = vec.indexName || 'second-brain-vectors'
+      const isAdmin = realMe && realMe.role === 'admin'
+      return h('div', { class: 'notice', role: 'status' }, h('strong', null, t('shell.vectorizeTitle', { name })),
+        isAdmin ? h('details', null, h('summary', null, t('shell.vectorizeFix')), h('p', null, t('shell.vectorizeRun')), h('code', null, 'npx wrangler vectorize create ' + name + ' --dimensions=384 --metric=cosine'), h('p', null, t('shell.vectorizeGui'))) : h('span', null, ' ', t('shell.vectorizeAskAdmin')))
+    }
+    if (hl.team && vec && vec.workspaceFilter && vec.workspaceFilter.supported === false) return h('div', { class: 'notice', role: 'status' }, t('shell.filterDegraded'))
+    return null
   }
 
   function viewAsBanner() {
@@ -68,9 +93,10 @@
       h('header', { class: 'topbar' },
         h('a', { class: 'topbar__brand', href: '#/perguntar', 'aria-label': t('shell.home') }, Logo({ width: 128 })),
         h('nav', { class: 'topbar__nav', 'aria-label': t('shell.nav') }, navLinks(area)),
-        h('div', { class: 'topbar__tools' }, clientSelect(),
+        h('div', { class: 'topbar__tools' }, clientSelect(), Button({ variant: 'ghost', size: 'sm', class: 'topbar__refresh', 'aria-label': t('shell.refresh'), title: t('shell.refresh'), onClick: async () => { if (g.MemoriesScreen) g.MemoriesScreen.reset(); await refreshAll(); route(); g.VUI.toast(t('shell.refreshed')) } }, t('shell.refreshShort')),
           h('button', { type: 'button', class: 'topbar__profile', onClick: openProfile, 'aria-label': t('shell.account') }, LevelPill({ level: me.clearanceFloor, size: 'sm' }), h('span', { class: 'topbar__name' }, me.name || t('common.you')))),
       ),
+      healthBanner(),
       viewAsBanner(),
     ]
   }

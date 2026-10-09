@@ -114,7 +114,9 @@ describe("voz dos catálogos", () => {
   const load = (file: string, name: string) => {
     const ctx: any = {};
     vm.createContext(ctx);
-    vm.runInContext(`${read(resolve(PUBLIC, "js", file))}\nthis.__c = ${name}`, ctx);
+    // O catálogo é em duas partes (i18n-pt.js e i18n-mem-pt.js): as duas no mesmo contexto, como a página carrega.
+    const part2 = file.replace("i18n-", "i18n-mem-");
+    vm.runInContext(`${read(resolve(PUBLIC, "js", file))}\n${read(resolve(PUBLIC, "js", part2))}\nthis.__c = ${name}`, ctx);
     return ctx.__c;
   };
   for (const [file, name] of [["i18n-pt.js", "I18N_PT"], ["i18n-en.js", "I18N_EN"]] as const) {

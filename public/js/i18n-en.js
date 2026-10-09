@@ -39,6 +39,13 @@ const I18N_EN = {
   shell: {
     title: 'Volanos Shared Brain',
     home: 'Go to Ask',
+    displayName: 'Your display name',
+    saveName: 'Save name',
+    nameSaved: 'Name saved.',
+    data: 'Your data',
+    refresh: 'Refresh',
+    refreshShort: 'Refresh',
+    refreshed: 'Updated.',
     skip: 'Skip to content',
     doc: 'Document',
     nav: 'Main navigation',

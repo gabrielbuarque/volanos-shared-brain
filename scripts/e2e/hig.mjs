@@ -43,7 +43,7 @@ const AUDIT = `(() => {
   return out;
 })()`;
 
-const ROUTES = ["#/perguntar", "#/clientes", "#/clientes/demo-dir-dique", "#/contribuir", "#/admin/pessoas", "#/admin/convites", "#/admin/integracoes", "#/admin/auditoria", "#/admin/avancado"];
+const ROUTES = ["#/memorias/recentes", "#/memorias/grafo", "#/memorias/resumo", "#/memorias/atividade", "#/memorias/equipe", "#/perguntar", "#/clientes", "#/clientes/demo-dir-dique", "#/contribuir", "#/admin/pessoas", "#/admin/convites", "#/admin/integracoes", "#/admin/auditoria", "#/admin/avancado"];
 for (const [w, h, mobile] of [[390, 844, true], [1280, 800, false]]) {
   await withPage({ w, h, mobile }, async (p) => {
     await p.login();

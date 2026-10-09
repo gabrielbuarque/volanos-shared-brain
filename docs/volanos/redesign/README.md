@@ -13,13 +13,13 @@ O backend de permissões (P0 a P12, filtro antes da IA, fila de aprovação, ver
 | --- | --- | --- |
 | Estilos | `main.css` (4.603 linhas) + `volanos.css` por cima | `tokens.css` (do pacote), `base.css`, `components.css`, `app.css`, `styleguide.css`. Nenhum hex fora de `tokens.css` (teste) |
 | Componentes | HTML por string | `public/js/ui/`: funções que devolvem elementos (Button, IconButton, Card, LevelPill, Tag, Tabs, Input, Select, Checkbox, Switch, Dialog, Toast, Tooltip, Eyebrow, Statement, Rule, Logo, Icon) |
-| Navegação | Home, Memories, Team, grafo, coach, patterns | Topo fixo com logo, seletor de cliente e perfil com o nível. Quatro áreas: Perguntar, Clientes, Contribuir, Admin |
+| Navegação | Home, Memories, Team, grafo, coach, patterns | Topo fixo com logo, seletor de cliente e perfil com o nível. Cinco áreas: Perguntar, Clientes, Memórias, Contribuir, Admin (esta só para admin) |
 | Resposta | texto + fontes recolhidas | frase direta, pontos com chips `[n]`, cartões de fonte, escopo, três ações, estados de espera, vazio, conflito, fonte antiga e erro |
 | Tema | claro, escuro e automático | só claro. Gradiente navy só no login e nas boas-vindas |
 | Ícones / fontes | Tabler via CDN | subset Lucide embutido; Montserrat e Merriweather locais |
 | Idiomas | en, it | pt-BR e en (`i18n-pt.js`, `i18n-en.js`) |
 
-Removidos: Memories, grafo, coach, patterns, brief, Remember, tema escuro e 41 testes de UI que cobriam essas telas. O que ainda servia foi para **Admin > Avançado**: modelo de IA, textos dos níveis, saúde da memória (aging), exportação, sobre.
+Na primeira rodada saíram Memories, grafo, coach, patterns, brief e Remember. **Voltaram na terceira rodada** (seção abaixo), já na interface nova. Seguem fora: tema escuro e as cores por grupo do grafo. Em **Admin > Avançado**: modelo de IA, textos dos níveis, saúde da memória (aging), manutenção, exportação, sobre.
 
 ### Rotas e API novas
 
@@ -97,6 +97,31 @@ Referência do PRD: `Volanos_Shared_Brain_Arquitetura_e_Plano.pdf` (15 slides; n
 
 **Desvio do DS para revisar com a Karen:** o cinza dos kickers (`--grey-eyebrow`, #7B7B7B) dá 3,9:1 sobre o Off-White e o das legendas 4,4:1. Para texto de navegação, abas, legendas, metadados e rótulos usamos o navy a 70% (`--text-secondary`, #4A5670). O anel de foco em Light Blue continua com cerca de 1,6:1 (pendência acima).
 
+## Terceira rodada: as funcionalidades da interface anterior voltaram
+
+O redesign tinha tirado Memories, grafo, resumo, padrões, equipe e outras telas do Second Brain. A regra agora é: **a interface nova fica, as funcionalidades antigas voltam**. Tudo usa as mesmas rotas de antes e passa pelo mesmo filtro de nível, workspace e ACL do servidor (`test/integration/legacy-features.test.ts` prova: P8 não recebe nó, aresta, trecho, contagem nem exportação com conteúdo P0).
+
+| Antes | Agora, na interface nova |
+| --- | --- |
+| Home: "pergunte ou conte algo para lembrar", detecção do modo, camada de captura, #tags, recibo | **Perguntar** tem o modo **Vai buscar / Vai guardar** (detecta sozinho, a pessoa pode fixar), "Onde guardar" (padrão, pessoal ou compartilhada) com a frase de onde a anotação cai, #tags e recibo |
+| Home: perguntas prontas, temas, contagem, primeiros passos, filtro por tag e por camada | Sete perguntas prontas, temas do resumo, contagem, três primeiros passos e **Filtros da busca** (tag e camada) |
+| Memories: lista por dia e semana, filtros de tag, período, camada, nível e autor | **Memórias > Recentes**, com os mesmos filtros |
+| Memories: ver, anexar, editar (com tags), esquecer, compartilhar ou tornar privada, desfazer, trava de autoria | Cartão e leitura com as mesmas ações. Documento compartilhado edita pela **proposta de edição** (preserva quebras de linha). Esquecer fica atrás de "Mais" |
+| Memories: seleção em lote para compartilhar ou tornar privada | **Selecionar** (só em equipe), uma chamada por memória, com confirmação e resultado por linha |
+| Leitura: o que o cérebro sabe (importância, tipo, estado, duração, quantas vezes foi lembrada), linha do tempo, relacionadas e desligar | Leitura completa, com tudo isso |
+| Grafo | **Memórias > Grafo**: agrupado por tema, zoom por botões, roda e pinça, toque abre a memória. Sem cor por grupo (marca): nó navy, compartilhado com anel, ligação explícita em linha cheia |
+| Resumo do dia (/brief), padrões percebidos (confirmar ou descartar, em lote), itens desatualizados (manter, editar, anexar, esquecer) | **Memórias > Resumo** |
+| Atividade do time e exportar CSV | **Memórias > Atividade** (só admin) |
+| Team: nome, modo equipe, padrão de captura da organização, insights semanais, membros com padrão por pessoa, adicionar pessoa com token, copiar e enviar convite | **Memórias > Equipe** (admin). Membro vê nome, quem está na equipe e define o próprio padrão. Nível, suspender, novo token e remover seguem em Admin > Pessoas |
+| Menu: nome de exibição, backup JSON, exportar Markdown, restaurar de backup | **Perfil** (toque no seu nível). A restauração mostra o andamento e oferece indexar |
+| Menu: manutenção (resumir por tag, indexar o que falta, classificar o que falta) | **Admin > Avançado > Manutenção** |
+| Aviso de índice de busca ausente e de filtro de camada degradado | Faixa abaixo do topo |
+| Botão de atualizar | "Atualizar" no topo |
+
+**Não voltou, de propósito:** modo escuro (a marca o remove), italiano (o redesign é pt-BR e en; o catálogo do upstream em italiano segue no histórico git), download do app de desktop (aponta para o repositório do Second Brain original, não para o Volanos) e as cores por grupo do grafo (a paleta só tem navy e cinza).
+
+**Detalhe a conhecer:** o `/capture` e o `/update` do upstream achatam quebras de linha. Anotações e memórias pessoais saem em uma linha; documentos compartilhados editam pelo caminho que preserva a estrutura.
+
 ### O que o PRD pede e ainda não está na interface
 
 | PRD | Situação |
@@ -107,9 +132,9 @@ Referência do PRD: `Volanos_Shared_Brain_Arquitetura_e_Plano.pdf` (15 slides; n
 | Ciclo de vida: ativo, arquivado, substituído, rejeitado | Mostramos versão ativa e histórico. Arquivar e substituir pela interface não existe (o backend tem `archive` e `merge`) |
 | Proveniência por agente ("alterada pelo agente de André") | Mostramos pessoa, data e origem; o agente não é registrado |
 | Autoridade da fonte na precedência (owner ou gerente pesam mais que nota casual) | Só canônica, revisada e recência |
-| Padrão de captura por pessoa (privado ou compartilhado) | Existe no backend (`default-share`); a interface sempre pergunta |
-| Atividade do time e padrões semanais | Saíram da navegação, como o prompt pediu; seguem no backend |
-| Edição de nota privada | A nota é salva achatada (o `/capture` do upstream junta linhas). Vale revisar antes de usar notas longas |
+| Padrão de captura por pessoa (privado ou compartilhado) | Feito: Perguntar mostra onde a anotação cai e deixa fixar a camada; Memórias > Equipe define o padrão |
+| Atividade do time e padrões semanais | Feito: Memórias > Atividade e Memórias > Resumo |
+| Edição de nota privada | Feito (Memórias > Editar). A nota é salva achatada, porque o `/update` do upstream junta linhas |
 
 ## Ferramentas
 

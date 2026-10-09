@@ -181,6 +181,7 @@
       ))
   }
 
+  g.EditDocDialog = { open: editDialog }
   g.ClientsScreen = { render(host, parts) { return parts[0] ? renderClient(host, parts[0]) : renderList(host) } }
   g.DocScreen = { render(host, parts) { return renderDoc(host, parts[0]) } }
 })(typeof globalThis !== 'undefined' ? globalThis : window)

@@ -51,7 +51,7 @@ function makeCtx() {
   };
   ctx.globalThis = ctx;
   vm.createContext(ctx);
-  for (const f of ["js/i18n-pt.js", "js/i18n-en.js", "js/i18n.js", "js/ui/dom.js", "js/ui/icons.js", "js/ui/brand.js", "js/ui/core.js", "js/ui/forms.js", "js/ui/feedback.js", "js/core/format.js", "js/core/stream.js"]) {
+  for (const f of ["js/i18n-pt.js", "js/i18n-en.js", "js/i18n-mem-pt.js", "js/i18n-mem-en.js", "js/i18n.js", "js/ui/dom.js", "js/ui/icons.js", "js/ui/brand.js", "js/ui/core.js", "js/ui/forms.js", "js/ui/feedback.js", "js/core/format.js", "js/core/stream.js"]) {
     vm.runInContext(read(f), ctx, { filename: f });
   }
   vm.runInContext("initI18n('pt')", ctx);

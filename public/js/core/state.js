@@ -14,6 +14,14 @@
     clients: [],
     internal: { sources: 0, updated_at: null },
     levels: [],
+    /** Modo equipe (GET /health): sem ele não há camada compartilhada, filtros de camada nem seleção em lote. */
+    team: false,
+    /** Saúde do índice de busca (GET /health): { vectorize, team }. Alimenta o aviso do topo. */
+    health: null,
+    teamName: '',
+    count: 0,
+    /** Padrão de captura de quem está logado (GET /team/me): { defaultShare, orgDefault, effectiveDefault }. */
+    capture: null,
     activeClient: ALL,
     listeners: new Set(),
 
@@ -22,7 +30,20 @@
     },
 
     async load() {
-      const [clients, levels] = await Promise.all([g.Session.api('/clients'), g.Session.api('/levels').catch(() => ({ levels: [] }))])
+      const [clients, levels, health, count, teams, mine] = await Promise.all([
+        g.Session.api('/clients'),
+        g.Session.api('/levels').catch(() => ({ levels: [] })),
+        g.Session.api('/health').catch(() => ({})),
+        g.Session.api('/count').catch(() => ({})),
+        g.Session.api('/team/workspaces').catch(() => ({ teams: [] })),
+        g.Session.api('/team/me').catch(() => ({})),
+      ])
+      this.team = !!health.team
+      this.health = health
+      this.count = Number(count.count) || 0
+      this.teamName = this.team && teams.teams && teams.teams[0] ? String(teams.teams[0].name || '').trim() : ''
+      const p = mine.profile || null
+      this.capture = p ? { defaultShare: p.defaultShare, orgDefault: p.orgDefault, effectiveDefault: p.effectiveDefault } : null
       this.clients = clients.clients || []
       this.internal = clients.internal || this.internal
       this.levels = levels.levels || []

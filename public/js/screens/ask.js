@@ -10,7 +10,15 @@
   const { Parts, Fmt, App, Session } = g
 
   const NOT_FOUND = '[not-found]'
-  const state = { turns: [], seq: 0, busy: null }
+  const state = { turns: [], seq: 0, busy: null, mode: 'ask', modeLocked: false, layer: '', tag: '', layerFilter: '', receipt: null, tags: null, brief: null, prefill: '' }
+
+  /** Pergunta ou anotação? "?" ou abertura de pergunta = perguntar; o resto vira anotação. Vazio fica em perguntar. */
+  const ASK_OPENERS = /^(who|what|when|where|why|how|which|did|do|does|is|are|was|were|can|could|should|would|will|tell me|show me|find|search|list|quem|qual|quais|quando|onde|por que|porque|como|quanto|quantos|o que|existe|tem|temos|liste|mostre|mostra|busque|ache|resuma)\b/i
+  function detectMode(text) {
+    const s = String(text || '').trim()
+    if (!s) return 'ask'
+    return s.endsWith('?') || ASK_OPENERS.test(s) ? 'ask' : 'remember'
+  }
 
   function resetConversation() {
     if (state.busy) state.busy.abort()
@@ -44,6 +52,8 @@
       if (!sources) {
         const params = new URLSearchParams({ query: turn.query, topK: '6', hops: '1', full: '1' })
         if (App.scopeParam(turn.client)) params.set('client', App.scopeParam(turn.client))
+        if (state.tag) params.set('tag', state.tag)
+        if (state.layerFilter) params.set('workspace', state.layerFilter)
         const data = await Session.api('/recall?' + params, { signal: ctrl.signal })
         sources = data.results || []
         conflicts = data.conflicts || []
@@ -82,6 +92,22 @@
     const turn = { id: ++state.seq, query: extra.display || q, instruction: extra.instruction, client: App.activeClient, status: 'loading', text: '', sources: [], conflicts: [], reuse: extra.reuse, meta: null }
     state.turns.push(turn)
     runTurn(turn)
+  }
+
+  /** Lembrar: grava a anotação (hashtags viram tags). A camada vem do padrão da pessoa, a não ser que ela fixe uma. */
+  async function remember(text) {
+    const tags = []
+    const re = /#([a-zA-ZÀ-ÿ][\w-]*)/g
+    let m
+    while ((m = re.exec(text)) !== null) tags.push(m[1])
+    const content = text.replace(/#[a-zA-ZÀ-ÿ][\w-]*/g, '').replace(/\s+/g, ' ').trim() || text
+    try {
+      const r = await Session.api('/capture', { method: 'POST', body: { content, tags, source: 'web-ui', ...(state.layer ? { workspace: state.layer } : {}) } })
+      state.receipt = r && r.duplicate ? { kind: 'duplicate' } : { kind: 'saved', tags, layer: state.layer || (App.capture && App.capture.effectiveDefault) || 'personal' }
+      App.count += r && r.duplicate ? 0 : 1
+      if (g.MemoriesScreen) g.MemoriesScreen.reset()
+    } catch (e) { state.receipt = { kind: 'failed' } }
+    repaint()
   }
 
   let host = null
@@ -213,9 +239,58 @@
   function composer() {
     const field = h('textarea', { class: 'v-control composer__field', rows: 2, maxlength: 2000, placeholder: t('ask.placeholder', { client: App.clientName(App.activeClient) }), 'aria-label': t('ask.fieldLabel'), onKeydown: (e) => {
       if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit() }
-    } })
-    const submit = () => { const q = field.value; field.value = ''; ask(q) }
-    return h('form', { class: 'composer', onSubmit: (e) => { e.preventDefault(); submit() } }, field, Button({ type: 'submit', iconAfter: 'arrow-right', disabled: !!state.busy }, t('ask.submit')))
+    }, onInput: () => { if (!state.modeLocked) { state.mode = detectMode(field.value); paintMode() } } })
+    const modeBtn = Button({ variant: 'ghost', size: 'sm', type: 'button', 'aria-pressed': 'false', onClick: () => { state.modeLocked = true; state.mode = state.mode === 'ask' ? 'remember' : 'ask'; paintMode() } }, '')
+    const sendLabel = h('span')
+    const send = Button({ type: 'submit', iconAfter: 'arrow-right', disabled: !!state.busy }, sendLabel)
+    const layerSel = App.team ? g.VUI.Select({ label: t('ask.layer'), options: [{ value: '', label: t('ask.layerAuto') }, { value: 'personal', label: t('mem.personalLayer') }, { value: 'company', label: t('mem.sharedLayer') }], value: state.layer, onChange: (e) => { state.layer = e.target.value; paintMode() }, class: 'composer__layer' }) : null
+    const hint = h('p', { class: 'v-caption composer__hint', 'aria-live': 'polite' })
+    function paintMode() {
+      const remembering = state.mode === 'remember'
+      modeBtn.textContent = t(remembering ? 'ask.modeRemember' : 'ask.modeAsk')
+      modeBtn.setAttribute('aria-pressed', String(remembering))
+      sendLabel.textContent = t(remembering ? 'ask.remember' : 'ask.submit')
+      if (layerSel) layerSel.hidden = !remembering
+      hint.textContent = remembering ? [t('ask.tagsHint'), App.team ? rememberTarget() : ''].filter(Boolean).join(' ') : ''
+    }
+    const submit = () => {
+      const q = field.value.trim()
+      if (!q || state.busy) return
+      field.value = ''
+      if (state.mode === 'remember') { state.receipt = null; remember(q) } else { state.receipt = null; ask(q) }
+    }
+    paintMode()
+    return h('form', { class: 'composer', onSubmit: (e) => { e.preventDefault(); submit() } }, field, send,
+      h('div', { class: 'composer__tools' }, modeBtn, layerSel), hint)
+  }
+
+  /** Onde a próxima anotação cai, dito em uma frase (o padrão pessoal, o da organização ou a camada fixada). */
+  function rememberTarget() {
+    if (state.layer === 'personal') return t('team.pinnedPersonal')
+    if (state.layer === 'company') return t('team.pinnedShared')
+    const key = g.TeamTab && g.TeamTab.captureKey ? g.TeamTab.captureKey(App.capture) : null
+    return key ? t(key) : ''
+  }
+
+  function receipt() {
+    const r = state.receipt
+    if (!r) return null
+    if (r.kind === 'failed') return Parts.ErrorState({ title: t('ask.receiptFailed'), body: t('error.body') })
+    if (r.kind === 'duplicate') return h('p', { class: 'turn__note', role: 'status' }, t('ask.receiptDuplicate'))
+    return h('p', { class: 'turn__note', role: 'status' }, [t(r.layer === 'company' ? 'ask.receiptShared' : 'ask.receiptPrivate'), r.tags && r.tags.length ? ' ' + r.tags.map((x) => '#' + x).join(' ') : ''].join(''))
+  }
+
+  /** Filtros da busca: por tag e, em equipe, por camada. */
+  function filters() {
+    if (!state.tags && !state.tagsLoading) {
+      state.tagsLoading = true
+      Session.api('/tags').then((tags) => { state.tags = g.Legacy.humanTags(Array.isArray(tags) ? tags : []); repaint() }).catch(() => { state.tags = [] }).finally(() => { state.tagsLoading = false })
+    }
+    const tagOptions = [{ value: '', label: t('mem.allTags') }, ...(state.tags || []).map((x) => ({ value: x, label: x }))]
+    return h('details', { class: 'ask__filters' }, h('summary', null, t('ask.filters')),
+      h('div', { class: 'mem-filters' },
+        g.VUI.Select({ label: t('mem.tag'), options: tagOptions, value: state.tag, onChange: (e) => { state.tag = e.target.value } }),
+        App.team ? g.VUI.Select({ label: t('mem.layer'), options: [{ value: '', label: t('mem.allLayers') }, { value: 'personal', label: t('mem.personalLayer') }, { value: 'company', label: t('mem.sharedLayer') }], value: state.layerFilter, onChange: (e) => { state.layerFilter = e.target.value } }) : null))
   }
 
   function hero() {
@@ -223,6 +298,7 @@
     return h('div', { class: 'ask__hero' },
       Eyebrow({}, t('ask.eyebrow', { client: App.clientName(App.activeClient) })),
       Statement({ turn: t('ask.turn'), support: t('ask.support') }, t('ask.statement')),
+      App.count ? h('p', { class: 'v-caption' }, tPlural('ask.count', App.count, { n: formatNumberUI(App.count) })) : h('ol', { class: 'first-run' }, [1, 2, 3].map((n) => h('li', null, t('ask.firstRun.' + n)))),
     )
   }
 
@@ -240,6 +316,23 @@
       } }, t(label))))
   }
 
+  /** Sugestões da interface anterior: perguntas prontas e dois recortes de tempo. */
+  function suggestions() {
+    const items = ['workingOn', 'decided', 'tasks', 'goals', 'ideas', 'lastWeek', 'thisMonth']
+    return h('div', { class: 'ask__shortcuts', role: 'group', 'aria-label': t('ask.suggestions') },
+      items.map((k) => Tag({ variant: 'neutral', onClick: () => { state.mode = 'ask'; state.modeLocked = true; ask(t('ask.sug.' + k)) } }, t('ask.sug.' + k + 'Label'))))
+  }
+
+  /** Temas do resumo: um toque pergunta sobre o tema. */
+  function topics() {
+    if (state.brief === null && !state.briefLoading) {
+      state.briefLoading = true
+      Session.api('/brief').then((d) => { state.brief = d; repaint() }).catch(() => { state.brief = false }).finally(() => { state.briefLoading = false })
+    }
+    const list = ((state.brief && state.brief.topics) || []).filter((x) => !g.Legacy.isSystemTag(x.tag)).slice(0, 4)
+    return list.length ? h('div', { class: 'ask__shortcuts', role: 'group', 'aria-label': t('ask.topics') }, list.map((x) => Tag({ variant: 'outline', onClick: () => ask(t('brief.askAbout', { tag: x.tag })) }, `${x.tag} · ${x.count}`))) : null
+  }
+
   function draw() {
     const empty = !state.turns.length
     const keep = host.querySelector('.composer__field')
@@ -250,9 +343,13 @@
       h('div', { class: 'ask' + (empty ? '' : ' ask--thread') },
         empty ? hero() : null,
         empty ? c : null,
+        receipt(),
         empty ? shortcuts() : null,
+        empty ? suggestions() : null,
+        empty ? topics() : null,
+        empty ? filters() : null,
         empty ? null : h('div', { class: 'ask__thread' }, state.turns.map(turnView)),
-        empty ? null : h('div', { class: 'ask__dock' }, c),
+        empty ? null : h('div', { class: 'ask__dock' }, receipt(), c),
       ),
     )
     const field = host.querySelector('.composer__field')
@@ -263,8 +360,11 @@
     render(el) {
       host = el
       draw()
+      if (state.prefill) { const f = host.querySelector('.composer__field'); if (f) { f.value = state.prefill; f.dispatchEvent(new Event('input')) } state.prefill = '' }
       if (!state.turns.length) host.querySelector('.composer__field')?.focus()
     },
+    /** Preenche o campo na próxima vez que a tela abrir (usado pelo resumo). */
+    prefill(text) { state.prefill = String(text || ''); state.mode = 'ask'; state.modeLocked = true },
     /** Para testes e para o roteador: reinicia a conversa ao trocar de cliente. */
     reset: resetConversation,
   }
