@@ -389,3 +389,111 @@ input[type=text], input[type=search], input[type=email], input[type=password], i
 .home-hint .hashtag, #screen-home .input-field, #screen-home .input-field::placeholder,
 #recent-list .memory-card::before, .pattern-source--gone { font-style: normal; }
 #sb-download-app { font-size: 11px; letter-spacing: 0.06em; padding: 9px 12px; white-space: nowrap; }
+
+/* ══ Espaçamento e alvos de toque (Apple HIG) ═══════════════════════════════
+   - Grade de 8pt (4pt para ajustes finos): 4 · 8 · 12 · 16 · 24 · 32.
+   - Margem lateral única em todas as telas: 16px no celular, 24px a partir de
+     768px. Antes cada tela tinha a sua (18, 20, 24, 28).
+   - Alvo de toque mínimo de 44×44pt em telas de toque.
+   - Texto nunca abaixo de 11px; campos a 16px no celular (o iOS dá zoom abaixo disso). */
+:root { --gutter: 16px; --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px; --space-5: 24px; --space-6: 32px; --tap: 44px; }
+@media (min-width: 768px) { :root { --gutter: 24px; } }
+
+#recall-messages { padding: 24px var(--gutter) 8px; }
+.home { padding: 24px 0 8px; }
+.mem-bar { padding: 12px var(--gutter); gap: 8px; }
+#recent-list { padding: 16px var(--gutter) 24px; }
+#team-body { padding: 24px var(--gutter) !important; }
+.coach-mark { padding: 12px 16px; }
+.brief-panel { padding: 16px; }
+.team-name-row { padding: 12px 16px; }
+.team-row { padding: 16px; gap: 12px; }
+#recent-list .memory-card { padding-right: 8px; }
+.home-input { padding: 16px 16px 12px; }
+.attn { padding: 8px 12px; }
+
+/* Texto mínimo de 11px */
+.brief-eyebrow, .brief-label, .lvl-pill--card, .lvl-pill { font-size: 11px; }
+
+@media (max-width: 767px) {
+  /* Alvos de 44px. Os controles visuais continuam do mesmo tamanho onde cabem; o que cresce é a área que responde ao toque. */
+  .topbar-menu, .send-btn, .team-icon-btn, .card-action-btn, .btn-close-icon, .graph-btn,
+  .digest-btn, .view-toggle-btn, .coach-mark-dismiss, .attn, .vol-tab, .topic-chip,
+  .btn-append-save, .btn-append-cancel, .btn-cancel, .btn-delete, .menu-item,
+  #auth-connect, .vol-google-btn, .nav-tab, .suggestion-pill {
+    min-height: var(--tap);
+  }
+  .topbar-menu, .send-btn, .team-icon-btn, .card-action-btn, .btn-close-icon { min-width: var(--tap); }
+  #screen-home .send-btn, #screen-recall .send-btn { min-width: var(--tap); min-height: var(--tap); }
+  .filter-field, .team-select-wrap select, .team-select, select, input[type=text], input[type=email], input[type=search], input[type=password], input[type=url], textarea {
+    min-height: var(--tap);
+    font-size: 16px;
+  }
+  .home-field { min-height: 48px; font-size: 16px; }
+  .filter-inner { min-height: var(--tap); }
+  /* Linha de ações do cartão: respiro entre alvos vizinhos */
+  #recent-list .card-actions { gap: 4px; }
+  /* Checkbox e switch: a área de toque é o rótulo inteiro */
+  .sb-switch, label:has(input[type=checkbox]) { min-height: var(--tap); display: inline-flex; align-items: center; }
+  .team-row { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (max-width: 767px) {
+  /* Filtros da lista: grade de duas colunas, cada seletor com largura útil e alvo de 44px. */
+  .mem-filters { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 8px; border-radius: 16px; align-items: center; }
+  .mem-filters > i { display: none; }
+  .mem-filters select, .mem-filters .team-select-wrap, .mem-filters #layer-filter-wrap { width: 100%; min-width: 0; }
+  .mem-filters .team-select-wrap { display: flex; }
+  .mem-filters select { padding-left: 12px; }
+  /* Aviso de memórias: mesma margem lateral das listas. */
+  #screen-memories .coach-mark { margin: 12px var(--gutter) 0; }
+  /* Rodapé do cartão: metadados e ações numa linha, etiquetas em linha própria. */
+  #recent-list .card-footer { flex-wrap: wrap; row-gap: 8px; column-gap: 12px; }
+  #recent-list .card-tags { order: 3; flex: 1 1 100%; }
+  #recent-list .card-actions { order: 2; margin-left: auto; }
+  #recent-list .card-action-btn { min-height: var(--tap); min-width: var(--tap); }
+  .lvl-pill { flex-shrink: 0; }
+}
+@media (max-width: 767px) {
+  .mem-filters select, .mem-filters select.filter-field {
+    font-size: 15px;
+    border: 1px solid var(--border-input);
+    border-radius: 8px;
+    background-color: var(--bg-card);
+    padding: 0 28px 0 12px;
+    text-overflow: ellipsis;
+  }
+}
+@media (max-width: 767px) {
+  .mem-filters select.filter-field {
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%230F1F49' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+  }
+}
+@media (max-width: 767px) {
+  /* Seletores de configuração: 15px com alvo de 44px; a linha quebra em vez de vazar do cartão. */
+  .team-select { font-size: 15px; max-width: 100%; }
+  .team-select-wrap { max-width: 100%; min-width: 0; }
+  #team-body > div { flex-wrap: wrap; row-gap: 8px; }
+  #team-body .team-row .team-select-wrap, #team-body .team-row select { width: 100%; }
+}
+
+/* Início: uma coluna de leitura única (680px) para campo, aviso e resumo, com ritmo vertical na grade de 4/8. */
+#recall-messages > * { width: 100%; max-width: 680px; margin-left: auto; margin-right: auto; }
+.home-input { max-width: none; margin-top: 24px; }
+.coach-mark, .home-hint, .home-row { margin-top: 12px; }
+.brief-eyebrow { margin-bottom: 16px; }
+#screen-memories .coach-mark { margin: 12px var(--gutter) 0; }
+
+/* Folha de configurações: mesma margem lateral, respiro entre blocos, alvos de 44px. */
+.menu-inner { padding-left: var(--gutter); padding-right: var(--gutter); }
+.menu-group { margin-bottom: 24px; }
+.digest-section { margin-bottom: 16px; }
+.digest-section .digest-btn { margin-top: 8px; }
+@media (max-width: 767px) {
+  .theme-toggle button { min-height: var(--tap); min-width: var(--tap); padding: 0 16px; }
+  .about-credits a { display: inline-flex; align-items: center; min-height: var(--tap); padding: 0 4px; }
+  .menu-item { padding-top: 12px; padding-bottom: 12px; }
+}
