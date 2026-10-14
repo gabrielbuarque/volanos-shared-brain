@@ -497,3 +497,16 @@ input[type=text], input[type=search], input[type=email], input[type=password], i
   .about-credits a { display: inline-flex; align-items: center; min-height: var(--tap); padding: 0 4px; }
   .menu-item { padding-top: 12px; padding-bottom: 12px; }
 }
+
+/* Textos dos níveis: campos de verdade (borda, raio, respiro), linhas na grade de 8pt e botão afastado. */
+.vol-section { margin: 0 0 32px; gap: 12px; }
+.vol-levels { gap: 8px; }
+.vol-level-row { gap: 12px; align-items: center; }
+.vol-level-row .filter-field {
+  width: 100%; min-width: 0; min-height: 40px; padding: 8px 12px;
+  border: 1px solid var(--border-input); border-radius: 8px; background: var(--bg-card);
+  font-size: 13px; color: var(--text-primary);
+}
+.vol-level-row .filter-field:focus { border-color: var(--volanos-blue); outline: none; box-shadow: none; }
+#vol-levels-editor .digest-note { margin-bottom: 16px; }
+#vol-levels-editor > .digest-btn { margin-top: 24px; }
