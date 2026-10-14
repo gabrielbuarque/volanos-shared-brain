@@ -221,3 +221,171 @@ body.vol-auth p { margin: 0; line-height: 1.5; color: var(--text-secondary, #465
 .vol-card--notice { border: 2px solid var(--accent); }
 .vol-card--notice p { margin: 0; font-size: 13px; line-height: 1.5; color: var(--text-secondary); }
 .vol-panel[hidden], #vol-panel-health[hidden], #vol-panel-export[hidden] { display: none; }
+
+/* ══ Identidade Volanos ═════════════════════════════════════════════════════
+   Camada só de aparência: cor, tipografia, botões, raios e sombras. Não mexe
+   em estrutura, fluxo nem texto. Regras do Brand Book:
+   - Paleta: navy #0F1F49, Light Blue #A5C9E9, Neutral Gray #E6E8EB,
+     Lead Grey #191A1E, Off-White #F5F5F5. Sem laranja, verde nem vermelho.
+   - Montserrat em tudo (títulos em 300, rótulos em 600 caixa-alta com
+     espaçamento aberto). Merriweather só em itálico, na "virada" do título.
+   - Botão = pílula. Primário navy cheio, secundário contorno navy, ghost.
+   - Sem sombra estática; erro = borda navy mais grossa. Só tema claro. */
+@font-face { font-family: 'Montserrat Local'; src: url('../fonts/Montserrat-VariableFont_wght.ttf') format('truetype'); font-weight: 300; font-style: normal; font-display: swap; }
+@font-face { font-family: 'Montserrat Local'; src: url('../fonts/montserrat-700.woff2') format('woff2'); font-weight: 700; font-style: normal; font-display: swap; }
+
+:root {
+  --volanos-blue: #0f1f49;
+  --volanos-blue-deep: #0a1634;
+  --light-blue: #a5c9e9;
+  --neutral-gray: #e6e8eb;
+  --lead-grey: #191a1e;
+  --off-white: #f5f5f5;
+  --grey-caption: #727272;
+  --eyebrow-track: 0.1em;
+
+  /* Cinzas e navy no lugar das cores de estado. */
+  --good: #0f1f49;
+  --warn: #0f1f49;
+  --danger: #0f1f49;
+  --danger-soft: rgba(15, 31, 73, 0.08);
+  --bg-tag: #e6e8eb;
+  --bg-confirm: rgba(165, 201, 233, 0.34);
+  --bg-tag-confirmed: #0f1f49;
+  --text-tag-confirmed: #ffffff;
+  --text-tag: #0f1f49;
+  --accent-on-elevated: #a5c9e9;
+  --surface-elevated: #0f1f49;
+  --text-on-elevated: #ffffff;
+  --switch-knob: #ffffff;
+
+  --font-serif: 'Montserrat Local', Montserrat, Arial, sans-serif;
+  --font-sans: 'Montserrat Local', Montserrat, Arial, sans-serif;
+  --font-mono: 'Montserrat Local', Montserrat, Arial, sans-serif;
+  --font-quote: 'Merriweather Local', Georgia, serif;
+
+  --radius-card: 16px;
+  --radius-bubble: 16px;
+  --shadow-card: none;
+  --shadow-float: 0 2px 4px rgba(15, 31, 73, 0.08), 0 18px 48px rgba(15, 31, 73, 0.14);
+  --shadow-sheet: 0 -2px 4px rgba(15, 31, 73, 0.08), 0 -18px 48px rgba(15, 31, 73, 0.14);
+}
+
+body { font-family: var(--font-sans); font-weight: 400; letter-spacing: -0.01em; color: var(--text-primary); background: var(--bg); }
+
+/* Títulos: Montserrat leve, navy. A única serifada é a "virada" em itálico. */
+h1, h2, h3, h4, .home-greeting, .sb-brand-name, .topbar-name, .auth-card h1, .vol-modal-card h2 {
+  font-family: var(--font-sans);
+  font-weight: 300;
+  letter-spacing: -0.02em;
+  font-style: normal;
+  color: var(--volanos-blue);
+}
+em, .home-greeting em, .auth-card h1 em { font-family: var(--font-quote); font-style: italic; font-weight: 400; }
+
+/* Rótulos e eyebrows: caixa-alta, 600, espaçamento aberto, cinza de legenda. */
+.menu-group-label, .digest-section-label, .volanos-kicker, .section-label, .digest-label,
+.card-label, .sb-section-label, [class*="eyebrow"], [class$="-label"]:not(label):not(.theme-row-label) {
+  font-family: var(--font-sans);
+  text-transform: uppercase;
+  letter-spacing: var(--eyebrow-track);
+  font-weight: 600;
+}
+
+/* Sem sombra estática: cartões se separam por linha fina. */
+.card, .mem-card, .vol-card, .vol-stat, .digest-card, .brief-card, .auth-card, .stat-card,
+.team-card, .integration-card, .vol-modal-card, body.vol-auth main {
+  box-shadow: none;
+  border: 1px solid var(--line-soft);
+  border-radius: 16px;
+}
+.vol-modal-card, .app-toast, .card-overflow-menu, .sheet, .menu-sheet { box-shadow: var(--shadow-float); }
+
+/* Foco: anel Light Blue em outline, sempre visível no teclado. */
+:focus-visible { outline: 3px solid var(--light-blue); outline-offset: 2px; }
+input:focus, textarea:focus, select:focus { border-color: var(--volanos-blue); }
+
+/* Campos: raio de 8px, borda fina; foco troca a borda para navy. */
+input[type=text], input[type=search], input[type=email], input[type=password], input[type=url], textarea, select, .filter-field {
+  font-family: var(--font-sans);
+  border-radius: 8px;
+}
+
+/* ── Botões ─────────────────────────────────────────────────────────────
+   Primário: navy cheio. Secundário: contorno navy. Ghost: só texto navy.
+   Todos em pílula, caixa-alta, 600, espaçamento aberto. */
+.digest-btn, .vol-google-btn, .btn-append-save, .btn-append-cancel, .btn-cancel, .btn-delete,
+.btn-view-append, .btn-view-edit, .btn-view-forget, #auth-connect, .coach-mark-dismiss, .refresh-btn {
+  font-family: var(--font-sans);
+  font-weight: 600;
+  font-size: 12px;
+  letter-spacing: var(--eyebrow-track);
+  text-transform: uppercase;
+  line-height: 1.2;
+  border-radius: 999px;
+  border: 1px solid var(--volanos-blue);
+  background: transparent;
+  color: var(--volanos-blue);
+  padding: 9px 20px;
+  min-height: 34px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s, transform 0.12s;
+}
+.digest-btn:hover, .btn-append-cancel:hover, .btn-cancel:hover, .btn-view-append:hover, .btn-view-edit:hover,
+.btn-view-forget:hover, .refresh-btn:hover { background: rgba(15, 31, 73, 0.06); color: var(--volanos-blue); }
+.digest-btn:active, .vol-google-btn:active, .btn-append-save:active, #auth-connect:active { transform: scale(0.985); }
+
+/* Primários */
+.vol-google-btn, .btn-append-save, #auth-connect, .btn-delete {
+  background: var(--volanos-blue);
+  color: #ffffff;
+  border-color: var(--volanos-blue);
+}
+.vol-google-btn:hover, .btn-append-save:hover, #auth-connect:hover, .btn-delete:hover {
+  background: var(--volanos-blue-deep);
+  border-color: var(--volanos-blue-deep);
+  color: #ffffff;
+}
+/* "Quieto" e perigoso: mesmo contorno; o perigo é dito por texto e diálogo, não por cor. */
+.digest-btn--quiet { border-color: transparent; }
+.digest-btn.danger { color: var(--volanos-blue); border-width: 2px; background: transparent; }
+.digest-btn.danger:hover { background: rgba(15, 31, 73, 0.06); }
+
+/* Desabilitado: cinza sólido da paleta, não opacidade sobre navy. */
+.digest-btn:disabled, .vol-google-btn:disabled, .btn-append-save:disabled, #auth-connect:disabled, .send-btn:disabled {
+  background: var(--neutral-gray);
+  border-color: transparent;
+  color: var(--grey-caption);
+  opacity: 1;
+  cursor: not-allowed;
+}
+
+/* Botão redondo de enviar e botões de ícone */
+.send-btn { background: var(--volanos-blue); border: 1px solid var(--volanos-blue); }
+.send-btn:hover { background: var(--volanos-blue-deep); }
+.send-btn i { color: #ffffff; }
+.card-action-btn, .btn-close-icon, .team-icon-btn, .view-toggle-btn, .graph-btn {
+  border-radius: 999px;
+  color: var(--volanos-blue);
+}
+.card-action-btn:hover, .btn-close-icon:hover, .team-icon-btn:hover, .graph-btn:hover { background: rgba(15, 31, 73, 0.06); color: var(--volanos-blue); }
+.view-toggle-btn.active { background: var(--volanos-blue); color: #ffffff; }
+
+/* Abas e chips */
+.vol-tab, .sb-tab, .nav-tab { font-family: var(--font-sans); font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; font-size: 12px; }
+.vol-tab.active { color: var(--volanos-blue); border-bottom-color: var(--volanos-blue); }
+.suggestion-pill, .topic-chip, .tag-chip { font-family: var(--font-sans); border-radius: 999px; }
+
+/* Rodapé "Baixar app do desktop" aponta para o upstream; fica discreto, sem destaque. */
+#sb-download-app { background: transparent; color: var(--volanos-blue); border: 1px solid var(--volanos-blue); border-radius: 999px; }
+
+/* Sem tema escuro: o seletor de aparência some. */
+.theme-row:has(#theme-toggle) { display: none; }
+#sb-download-app { --dl-bg: transparent; --dl-fg: var(--volanos-blue); font-family: var(--font-sans); font-weight: 600; font-size: 12px; letter-spacing: var(--eyebrow-track); text-transform: uppercase; }
+#sb-download-app:hover { background: rgba(15, 31, 73, 0.06); }
+.send-btn { border: 0; }
+/* Montserrat não tem itálico: nada de itálico sintético. Merriweather itálico só em <em>. */
+.date-label, .recall-sys, .sys-note, .append-context, .receipt-note, .view-brain-note, .capture-note .hashtag,
+.home-hint .hashtag, #screen-home .input-field, #screen-home .input-field::placeholder,
+#recent-list .memory-card::before, .pattern-source--gone { font-style: normal; }
+#sb-download-app { font-size: 11px; letter-spacing: 0.06em; padding: 9px 12px; white-space: nowrap; }

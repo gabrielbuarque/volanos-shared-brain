@@ -5,8 +5,9 @@ function setTheme(mode) {
   applyTheme()
 }
 function applyTheme() {
-  const mode = localStorage.getItem('sb_theme') || 'auto'
-  const dark = mode === 'dark' || (mode === 'auto' && _prefersDark.matches)
+  // A marca Volanos não tem tema escuro: o app é sempre claro.
+  const mode = 'light'
+  const dark = false
   document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light')
   const tc = document.querySelector('meta[name="theme-color"]')
   if (tc) tc.setAttribute('content', dark ? '#161616' : '#ffffff')

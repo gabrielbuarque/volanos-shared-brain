@@ -873,7 +873,7 @@
         font-variant-numeric: tabular-nums;
       }
       .ex-a code {
-        font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+        font-family: var(--font-sans);
         font-size: 0.82em;
         background: var(--surface-2);
         padding: 0.1em 0.4em;
@@ -2976,7 +2976,7 @@
         display: flex;
         align-items: center;
         gap: 10px;
-        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-family: var(--font-sans);
         font-size: 11px;
         color: var(--text-tertiary);
         margin-bottom: 6px;
@@ -3118,7 +3118,7 @@
         display: flex;
         flex-wrap: wrap;
         gap: 12px;
-        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-family: var(--font-sans);
         font-size: 11px;
         color: var(--text-tertiary);
         margin-bottom: 14px;
@@ -3145,7 +3145,7 @@
       }
 
       .view-brain-label {
-        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-family: var(--font-sans);
         font-size: 10px;
         letter-spacing: 0.08em;
         text-transform: uppercase;
@@ -3205,7 +3205,7 @@
         color: var(--accent-ink);
         border: 0;
         border-radius: 5px;
-        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-family: var(--font-sans);
         font-size: 10.5px;
         line-height: 1;
         cursor: pointer;
@@ -3234,7 +3234,7 @@
         display: flex;
         align-items: center;
         gap: 8px;
-        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-family: var(--font-sans);
         font-size: 11.5px;
         color: var(--accent-ink);
       }
@@ -3278,7 +3278,7 @@
         background: var(--accent-soft);
         color: var(--accent-ink);
         border-radius: 5px;
-        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-family: var(--font-sans);
         font-size: 10.5px;
         line-height: 1;
         flex-shrink: 0;
@@ -3357,7 +3357,7 @@
       }
 
       .brief-eyebrow {
-        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-family: var(--font-sans);
         font-size: 10px;
         letter-spacing: 0.1em;
         text-transform: uppercase;
@@ -3380,7 +3380,7 @@
       }
 
       .brief-label {
-        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-family: var(--font-sans);
         font-size: 10px;
         letter-spacing: 0.08em;
         text-transform: uppercase;
@@ -3468,7 +3468,7 @@
         align-items: center;
         gap: 5px;
         min-width: 88px;
-        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-family: var(--font-sans);
         font-size: 11px;
       }
 
@@ -3488,7 +3488,7 @@
       }
 
       .src-n {
-        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-family: var(--font-sans);
         font-size: 11px;
         color: var(--text-tertiary);
         min-width: 22px;
@@ -3517,7 +3517,7 @@
       }
 
       .topic-chip span {
-        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-family: var(--font-sans);
         font-size: 10px;
         color: var(--text-tertiary);
       }
@@ -3582,7 +3582,7 @@
       }
 
       .home-sub {
-        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-family: var(--font-sans);
         font-size: 11.5px;
         color: var(--text-tertiary);
         margin-top: 10px;
@@ -3645,7 +3645,7 @@
         border: 1px solid var(--border-input);
         border-radius: 999px;
         padding: 5px 12px;
-        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-family: var(--font-sans);
         font-size: 11px;
         color: var(--text-secondary);
         cursor: pointer;
