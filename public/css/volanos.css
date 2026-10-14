@@ -1,0 +1,223 @@
+/* Volanos brand layer. Loaded after main.css and graph.css so it wins by order.
+   Single source for brand tokens: navy #0F1F49, light blue #A5C9E9, off-white #F5F5F5,
+   lead grey #191A1E. No red, no green: an error is a thicker navy border. */
+@font-face {
+  font-family: 'Montserrat Local';
+  src: url('../fonts/montserrat-400.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Montserrat Local';
+  src: url('../fonts/montserrat-600.woff2') format('woff2');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Merriweather Local';
+  src: url('../fonts/merriweather-italic.woff2') format('woff2');
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+
+:root {
+  --bg: #f5f5f5;
+  --bg-card: #ffffff;
+  --bg-secondary: #ffffff;
+  --surface-2: #e6e8eb;
+  --surface-3: #d8dde3;
+  --text-primary: #191a1e;
+  --text-secondary: #46505d;
+  --text-tertiary: #617080;
+  --text-tag: #46505d;
+  --border: rgba(15, 31, 73, 0.12);
+  --border-card: rgba(15, 31, 73, 0.1);
+  --border-input: rgba(15, 31, 73, 0.18);
+  --line-soft: rgba(15, 31, 73, 0.08);
+  --accent: #0f1f49;
+  --accent-press: #08132f;
+  --accent-soft: rgba(165, 201, 233, 0.34);
+  --accent-ink: #0f1f49;
+  --on-accent: #ffffff;
+  --font-serif: 'Merriweather Local', Georgia, serif;
+  --font-sans: 'Montserrat Local', Montserrat, Arial, sans-serif;
+  --shadow-card: 0 1px 2px rgba(15, 31, 73, 0.04), 0 8px 24px rgba(15, 31, 73, 0.08);
+}
+
+html[data-theme='dark'] {
+  --bg: #101a2f;
+  --bg-card: #17243d;
+  --bg-secondary: #17243d;
+  --surface-2: #20304e;
+  --surface-3: #2b3d5c;
+  --text-primary: #f5f5f5;
+  --text-secondary: #d5e0eb;
+  --text-tertiary: #a5c9e9;
+  --text-tag: #d5e0eb;
+  --border: rgba(165, 201, 233, 0.18);
+  --border-card: rgba(165, 201, 233, 0.14);
+  --border-input: rgba(165, 201, 233, 0.28);
+  --line-soft: rgba(165, 201, 233, 0.12);
+  --accent: #a5c9e9;
+  --accent-press: #d5e8f7;
+  --accent-soft: rgba(165, 201, 233, 0.22);
+  --accent-ink: #a5c9e9;
+  --on-accent: #0f1f49;
+}
+
+.brain-avatar {
+  background: rgba(165, 201, 233, 0.35);
+  color: var(--accent);
+}
+
+.brain-mark {
+  display: block;
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
+}
+
+.volanos-auth-mark {
+  width: 64px;
+  height: 64px;
+  margin: 0 auto 18px;
+  padding: 13px;
+  border-radius: 18px;
+  background: #a5c9e9;
+}
+
+.volanos-auth-mark img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.volanos-kicker {
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  margin-bottom: 12px;
+  text-align: center;
+}
+
+.sb-brand-name,
+.topbar-name {
+  letter-spacing: -0.02em;
+  font-weight: 600;
+}
+
+.sb-brand-status,
+.topbar-status {
+  color: var(--accent-ink);
+}
+
+.menu-group-label,
+.digest-section-label {
+  color: var(--accent);
+  letter-spacing: 0.08em;
+}
+
+/* ── Shared Brain pilot ─────────────────────────────────────────────────── */
+
+/* Level pills: one tone, navy at P0 lightening to P12. Level never borrows a
+   status color because the brand has none. */
+.lvl-pill {
+  display: inline-block;
+  min-width: 2.4em;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid #0f1f49;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-align: center;
+  cursor: help;
+}
+.lvl-pill[data-level="0"] { background: #0f1f49; color: #ffffff; }
+.lvl-pill[data-level="1"] { background: #203057; color: #ffffff; }
+.lvl-pill[data-level="2"] { background: #314166; color: #ffffff; }
+.lvl-pill[data-level="3"] { background: #425274; color: #ffffff; }
+.lvl-pill[data-level="4"] { background: #536282; color: #ffffff; }
+.lvl-pill[data-level="5"] { background: #647391; color: #ffffff; }
+.lvl-pill[data-level="6"] { background: #76849f; color: #ffffff; }
+.lvl-pill[data-level="7"] { background: #8795ad; color: #0f1f49; }
+.lvl-pill[data-level="8"] { background: #98a6bc; color: #0f1f49; }
+.lvl-pill[data-level="9"] { background: #a9b7ca; color: #0f1f49; }
+.lvl-pill[data-level="10"] { background: #bac7d8; color: #0f1f49; }
+.lvl-pill[data-level="11"] { background: #cbd8e7; color: #0f1f49; }
+.lvl-pill[data-level="12"] { background: #dce9f5; color: #0f1f49; }
+html[data-theme=dark] .lvl-pill { border-color: #a5c9e9; }
+/* On memory and source cards: a compact badge that sits with the other chips. */
+.lvl-pill--card { flex-shrink: 0; min-width: 0; padding: 1px 7px; font-size: 10.5px; line-height: 1.5; }
+
+.vol-section { margin: 0 0 28px; display: flex; flex-direction: column; gap: 10px; }
+.vol-form, .vol-row, .vol-card footer, .vol-link { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.vol-form .filter-field { flex: 1 1 220px; }
+.vol-list { display: flex; flex-direction: column; gap: 6px; }
+.vol-row { padding: 8px 12px; border: 1px solid var(--border-card); border-radius: 12px; background: var(--bg-card); }
+.vol-row > span:first-child { flex: 1 1 160px; font-weight: 500; }
+.vol-muted, .vol-hint { color: var(--text-tertiary); font-size: 12px; }
+.vol-card { display: flex; flex-direction: column; gap: 8px; padding: 14px; border: 1px solid var(--border-card); border-radius: 14px; background: var(--bg-card); box-shadow: var(--shadow-card); }
+.vol-card header { display: flex; align-items: center; gap: 8px; }
+.vol-card textarea { width: 100%; resize: vertical; font-family: var(--font-sans); }
+.vol-link { padding: 10px 12px; border: 1px solid var(--border-input); border-radius: 12px; background: var(--surface-2); }
+.vol-link code, .vol-code { font-size: 12px; word-break: break-all; }
+.vol-levels { display: flex; flex-direction: column; gap: 8px; }
+.vol-level-row { display: grid; grid-template-columns: 3.5em 1fr 2fr 1.2fr; gap: 8px; align-items: center; }
+@media (max-width: 720px) { .vol-level-row { grid-template-columns: 3.5em 1fr; } .vol-level-row input:nth-of-type(n+2) { grid-column: 2; } }
+
+/* Sign-in */
+.vol-google { display: flex; flex-direction: column; gap: 10px; margin-bottom: 18px; }
+.vol-google-btn {
+  padding: 12px 16px; border-radius: 12px; border: 1px solid var(--accent); background: var(--accent); color: var(--on-accent);
+  font: 600 14px var(--font-sans); cursor: pointer;
+}
+.vol-google-btn:hover { background: var(--accent-press); }
+.vol-google-btn:focus-visible, .vol-model-wrap select:focus-visible { outline: 2px solid #a5c9e9; outline-offset: 2px; }
+.vol-invite-info { padding: 12px 14px; border: 1px solid var(--border-input); border-radius: 12px; background: var(--surface-2); font-size: 13px; }
+.vol-invite-info p { margin: 6px 0 0; color: var(--text-secondary); }
+.vol-hint { text-align: center; margin: 0; }
+
+/* Errors: a thicker navy border, never red. */
+.vol-error, .vol-card--error { border: 3px solid #0f1f49; }
+html[data-theme=dark] .vol-error, html[data-theme=dark] .vol-card--error { border-color: #a5c9e9; }
+
+/* Welcome card */
+.vol-modal { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(15, 31, 73, 0.45); }
+.vol-modal-card { max-width: 480px; width: 100%; padding: 24px; border-radius: 18px; background: var(--bg-card); color: var(--text-primary); box-shadow: var(--shadow-card); display: flex; flex-direction: column; gap: 10px; }
+.vol-modal-card h2 { margin: 0; font-size: 20px; letter-spacing: -0.02em; }
+.vol-modal-card p { margin: 0; color: var(--text-secondary); font-size: 14px; line-height: 1.5; }
+
+/* Chat model picker and answer attribution */
+.vol-model-wrap { display: inline-flex; align-items: center; gap: 6px; margin: 0 8px 6px 0; }
+.vol-answered-by { margin-top: 6px; color: var(--text-tertiary); font-size: 11px; letter-spacing: 0.02em; }
+
+/* Server-rendered pages (login result, pending, denied) */
+body.vol-auth { margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center; background: var(--bg, #f5f5f5); color: var(--text-primary, #191a1e); font-family: var(--font-sans, Montserrat, Arial, sans-serif); }
+body.vol-auth main { max-width: 440px; margin: 16px; padding: 28px; border-radius: 18px; background: var(--bg-card, #ffffff); box-shadow: var(--shadow-card, none); }
+body.vol-auth h1 { margin: 0 0 12px; font-size: 20px; letter-spacing: -0.02em; }
+body.vol-auth p { margin: 0; line-height: 1.5; color: var(--text-secondary, #46505d); }
+
+/* Admin tabs, memory health and export */
+.vol-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 18px; border-bottom: 1px solid var(--line-soft); }
+.vol-tab { padding: 8px 14px; border: 0; border-bottom: 3px solid transparent; background: transparent; color: var(--text-secondary); font: 600 13px var(--font-sans); cursor: pointer; }
+.vol-tab:hover { color: var(--text-primary); }
+.vol-tab.active { color: var(--accent-ink); border-bottom-color: var(--accent); }
+.vol-tab:focus-visible { outline: 2px solid #a5c9e9; outline-offset: 2px; }
+.vol-stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.vol-stat { display: flex; flex-direction: column; gap: 2px; padding: 12px 14px; border: 1px solid var(--border-card); border-radius: 12px; background: var(--bg-card); }
+.vol-stat strong { font-size: 22px; letter-spacing: -0.02em; color: var(--accent-ink); }
+.vol-stat span { font-size: 12px; color: var(--text-tertiary); }
+.vol-sides { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; }
+.vol-side { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border: 1px solid var(--line-soft); border-radius: 12px; background: var(--surface-2); }
+.vol-side .vol-row { padding: 0; border: 0; background: transparent; }
+.vol-excerpt { margin: 0; font-size: 13px; line-height: 1.45; color: var(--text-secondary); white-space: pre-wrap; max-height: 9em; overflow: hidden; }
+.vol-diverge { font-size: 13px; padding: 6px 10px; border-left: 3px solid var(--accent); background: var(--accent-soft); border-radius: 6px; }
+.vol-card--notice { border: 2px solid var(--accent); }
+.vol-card--notice p { margin: 0; font-size: 13px; line-height: 1.5; color: var(--text-secondary); }
+.vol-panel[hidden], #vol-panel-health[hidden], #vol-panel-export[hidden] { display: none; }

@@ -65,7 +65,7 @@ describe("every stylesheet parses", () => {
   it("finds the stylesheets to check", () => {
     // If this ever reads zero the checks below would pass vacuously.
     expect(sheets.length).toBeGreaterThan(0);
-    expect(sheets).toContain("tokens.css");
+    expect(sheets).toContain("main.css");
   });
 
   for (const file of sheets) {
@@ -78,3 +78,44 @@ describe("every stylesheet parses", () => {
   }
 });
 
+/**
+ * The rules the memories multi-select needs, pinned by name.
+ *
+ * Balance alone would not have localised the failure: the broken file was
+ * unbalanced by exactly one brace, and the symptom was four specific rules
+ * going missing. These are asserted to open at the top level — not nested
+ * inside another rule — which is the state that makes them apply.
+ */
+describe("the multi-select rules are real top-level rules", () => {
+  const css = readFileSync(resolve(CSS_DIR, "main.css"), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+
+  /** Depths at which each selector opens a block. */
+  function openDepths(source: string): Record<string, number[]> {
+    const out: Record<string, number[]> = {};
+    let depth = 0;
+    let buf = "";
+    for (const ch of source) {
+      if (ch === "{") {
+        const sel = buf.trim().split("\n").pop()?.trim();
+        if (sel) (out[sel] ||= []).push(depth);
+        depth++;
+        buf = "";
+      } else if (ch === "}") {
+        depth--;
+        buf = "";
+      } else buf += ch;
+    }
+    return out;
+  }
+
+  const depths = openDepths(css);
+
+  for (const sel of [".mem-bulk-bar", ".mem-bulk-count", ".card-select", ".memory-card--selected"]) {
+    it(`${sel} is defined and not nested inside another rule`, () => {
+      expect(depths[sel], `${sel} is not defined in main.css`).toBeDefined();
+      // 0 is a top-level rule. 1 is legitimate only inside an @media block,
+      // which these are not — they are base rules the phone query refines.
+      expect(depths[sel]).toContain(0);
+    });
+  }
+});
