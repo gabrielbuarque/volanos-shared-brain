@@ -202,8 +202,16 @@ async function labelsForRows(
       : null;
 }
 
+// GHSA-46jr-4wx8-v453: without a cap the SDK walks every array element and object key
+// in a call's arguments, and one request can exhaust the isolate's memory. The largest
+// legitimate input here is a 64-tag array plus a dozen fields; 1,000 leaves wide margin.
+const MAX_TOOL_INPUT_ELEMENTS = 1_000;
+
 export function buildMcpServer(env: Env, ctx: ExecutionContext, identity?: Identity): McpServer {
-  const server = new McpServer({ name: "second-brain", version: "1.0.0" });
+  const server = new McpServer(
+    { name: "second-brain", version: "1.0.0" },
+    { maxToolInputElements: MAX_TOOL_INPUT_ELEMENTS },
+  );
 
   // Absent an Identity (direct construction in tests, or a caller that has not
   // been taught tenancy yet) every write below lands in the legacy owner space
