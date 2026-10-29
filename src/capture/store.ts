@@ -306,6 +306,7 @@ export async function appendToEntry(
   // model: "8/2/2026" is two different days depending on where you live.
   const timestamp = new Date().toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
   const separator = `\n\n[Update ${timestamp}]: `;
+  // Written to D1 as `content || ?` so concurrent appends do not overwrite each other; newContent only feeds re-embedding.
   const newContent = existingContent + separator + addition;
 
   // Computed once and used by both branches below so they cannot drift. Unlike a
@@ -320,8 +321,8 @@ export async function appendToEntry(
 
     // Both commits below are new logical versions (rewritten body, fresh index) that
     // stay in place — workspace_id and actor_id are never altered by an update.
-    await env.DB.prepare(`UPDATE entries SET content = ?, tags = ?, updated_at = ? WHERE id = ?`)
-      .bind(newContent, JSON.stringify(refreshedTags), now, id).run();
+    await env.DB.prepare(`UPDATE entries SET content = content || ?, tags = ?, updated_at = ? WHERE id = ?`)
+      .bind(separator + addition, JSON.stringify(refreshedTags), now, id).run();
 
     // Skipped when Vectorize is unavailable: the old vectors are the entry's only
     // remaining semantic index, and retiring them would leave it unsearchable.
@@ -381,8 +382,8 @@ export async function appendToEntry(
   const now = Date.now();
 
   await env.DB.prepare(
-    `UPDATE entries SET content = ?, vector_ids = ?, tags = ?, updated_at = ? WHERE id = ?`
-  ).bind(newContent, JSON.stringify(indexed ? [...existingVectorIds, newChunkId] : existingVectorIds), JSON.stringify(refreshedTags), now, id).run();
+    `UPDATE entries SET content = content || ?, vector_ids = ?, tags = ?, updated_at = ? WHERE id = ?`
+  ).bind(separator + addition, JSON.stringify(indexed ? [...existingVectorIds, newChunkId] : existingVectorIds), JSON.stringify(refreshedTags), now, id).run();
 
   try {
     await inferEdgesOnWrite(id, await neighborsFromVectorQuery(values, env), env);

@@ -265,3 +265,32 @@ describe("classified bulk ingest", () => {
     expect(secretInEntries.n).toBe(0);
   });
 });
+
+describe("bulk ingest hardening", () => {
+  const files = (n: number) => Array.from({ length: n }, (_, i) => ({ path: `f${i}.md`, content: `# A${i}\n\nprimeiro trecho ${i}\n\n# B${i}\n\nsegundo trecho ${i}` }));
+
+  it("ids are per workspace: the same file lands in each workspace", async () => {
+    const f = [{ path: "n.md", content: "texto igual nos dois" }];
+    const a = await jsonOf(await call("POST", "/bulk-ingest", "test-token", { workspace: "personal", classify: false, files: f }));
+    const b = await jsonOf(await call("POST", "/bulk-ingest", "test-token", { workspace: "company", classify: false, files: f }));
+    expect([a.imported, b.imported]).toEqual([1, 1]);
+    expect(await sqlite.db.prepare(`SELECT COUNT(DISTINCT workspace_id) AS n FROM entries WHERE tags LIKE '%bulk-ingest%'`).first()).toMatchObject({ n: 2 });
+  });
+
+  it("loads the feedback pool once and rejects over-large requests with 413 before any write", async () => {
+    const answers = (n: number) => ({ model: "m", answers: Object.fromEntries(Array.from({ length: n }, (_, i) => [`c${i}`, { type: "choice", choice: "P8", confidence: 0.95, probabilities: { P8: 0.95 } }])) });
+    vi.stubGlobal("fetch", vi.fn(async (_u: unknown, init?: RequestInit) => new Response(JSON.stringify(answers(Object.keys(JSON.parse(String(init?.body)).questions).length)), { status: 200 })));
+    env = { ...env, JEV_API_KEY: "jev-key" } as Env;
+    let feedbackQueries = 0;
+    const prepare = env.DB.prepare.bind(env.DB);
+    env = { ...env, DB: Object.assign(Object.create(env.DB), { prepare: (q: string) => { if (q.includes("FROM classification_feedback")) feedbackQueries++; return prepare(q); } }) } as Env;
+    const ok = await call("POST", "/bulk-ingest", "test-token", { workspace: "company", files: files(14) });
+    expect(ok.status).toBe(200);
+    expect(feedbackQueries).toBe(1);
+    const before = await sqlite.db.prepare(`SELECT COUNT(*) AS n FROM entries`).first() as any;
+    const big = await call("POST", "/bulk-ingest", "test-token", { workspace: "company", files: files(90) });
+    vi.unstubAllGlobals();
+    expect(big.status).toBe(413);
+    expect(await sqlite.db.prepare(`SELECT COUNT(*) AS n FROM entries`).first()).toEqual(before);
+  });
+});

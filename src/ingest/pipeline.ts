@@ -17,7 +17,6 @@ export interface Submitter {
   userId: string;
   /** Lowest level they publish at without approval (0 for an admin). */
   floor: number;
-  directPublish: boolean;
   /** Workspace the chunks will be written to: scopes the owner's earlier decisions shown to Jev. */
   workspaceId?: string;
 }
@@ -42,14 +41,22 @@ async function sha(text: string): Promise<string> {
   return [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, "0")).join("");
 }
 
+/** Keeps one request inside the Worker's subrequest budget and commitPlan to a few D1 batches. */
+export const MAX_CHUNKS_PER_REQUEST = 150;
+
+export class TooManyChunksError extends Error {
+  constructor(public chunks: number) { super(`too many chunks: ${chunks}`); }
+}
+
 /** Parse, classify and decide. Writes nothing, so dry runs and the live path share it. */
 export async function planIngest(env: Env, files: IngestFile[], who: Submitter): Promise<IngestPlan> {
   const levels = await getLevels(env);
   const parsed = await Promise.all(files.map(async file => {
-    const docId = `doc-${(await sha(`${file.path}\0${file.content}`)).slice(0, 24)}`;
+    const docId = `doc-${(await sha(`${who.workspaceId ?? ""}\0${file.path}\0${file.content}`)).slice(0, 24)}`;
     return { docId, file, doc: parseMarkdown(file.content, file.path.split("/").at(-1) ?? "Documento") };
   }));
   const flat = parsed.flatMap(p => p.doc.chunks.map(chunk => ({ p, chunk })));
+  if (flat.length > MAX_CHUNKS_PER_REQUEST) throw new TooManyChunksError(flat.length);
   const results = await classifyChunks(env, flat.map(f => f.chunk), levels, who.workspaceId);
   const chunks: PlannedChunk[] = [];
   for (let i = 0; i < flat.length; i++) {
@@ -109,6 +116,7 @@ export async function commitPlan(env: Env, plan: IngestPlan, writeCtx: WriteCont
       created_at: c.file.created_at,
       clearance_level: c.decision.level,
       source_path: c.file.path,
+      directory_id: writeCtx.directoryId ?? null,
     }));
     const summary = await importExportPayload(env, { version: 2, entries }, { limit: entries.length, writeCtx: { ...writeCtx, actorId: submitterId } });
     imported = summary.imported;

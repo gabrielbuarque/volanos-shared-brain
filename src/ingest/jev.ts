@@ -1,6 +1,6 @@
 import type { Env } from "../env";
 import type { Chunk } from "./tree";
-import { formatExamples, loadExamples, type FeedbackExample } from "./feedback";
+import { formatExamples, loadExamplePool, pickExamples, type FeedbackExample } from "./feedback";
 import { levelCriteria, parseLevel, rubricInstructions, type LevelText } from "./levels";
 
 /**
@@ -88,14 +88,14 @@ async function classifyBatch(env: Env, batch: readonly Chunk[], levels: readonly
 export async function classifyChunks(env: Env, chunks: readonly Chunk[], levels: readonly LevelText[], workspaceId?: string): Promise<ClassifyResult[]> {
   const groups = batches(chunks);
   // Decisions the owner already made in this workspace, closest to this batch.
-  const examplesFor = new Map<number, FeedbackExample[]>();
-  await Promise.all(groups.map(async (g, i) => { examplesFor.set(i, await loadExamples(env, workspaceId, g)); }));
+  const pool = await loadExamplePool(env, workspaceId);
+  const examplesFor = groups.map(g => pickExamples(pool, g));
   const out: ClassifyResult[][] = new Array(groups.length);
   let next = 0;
   const worker = async () => {
     while (next < groups.length) {
       const i = next++;
-      out[i] = await classifyBatch(env, groups[i], levels, examplesFor.get(i) ?? []);
+      out[i] = await classifyBatch(env, groups[i], levels, examplesFor[i]);
     }
   };
   await Promise.all(Array.from({ length: Math.min(JEV_PARALLEL, groups.length) }, worker));

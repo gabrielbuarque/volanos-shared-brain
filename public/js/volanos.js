@@ -20,7 +20,10 @@ let volWelcomePending = false
   const invite = params.get('invite')
   if (!session && !invite) return
   try {
-    if (session) {
+    // Only a login this tab started: a `#session=` link from someone else carries no matching nonce.
+    const expected = sessionStorage.getItem('sb_login_nonce')
+    sessionStorage.removeItem('sb_login_nonce')
+    if (session && expected && params.get('n') === expected) {
       localStorage.setItem('sb_url', window.location.origin)
       localStorage.setItem('sb_token', session)
       volWelcomePending = params.get('welcome') === '1'
@@ -123,11 +126,14 @@ async function volPostPublic(path, body) {
 
 async function volStartGoogle() {
   try {
+    const bytes = crypto.getRandomValues(new Uint8Array(24))
+    const n = btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+    sessionStorage.setItem('sb_login_nonce', n)
     if (volInviteToken) {
-      const { url } = await volPostPublic('/auth/google/start', { invite: volInviteToken })
+      const { url } = await volPostPublic('/auth/google/start', { invite: volInviteToken, n })
       window.location.href = url
     } else {
-      window.location.href = `${window.location.origin}/auth/google/start`
+      window.location.href = `${window.location.origin}/auth/google/start?n=${n}`
     }
   } catch (e) {
     showToast(e.message)

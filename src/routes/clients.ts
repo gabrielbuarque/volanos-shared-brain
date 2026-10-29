@@ -5,7 +5,7 @@ import { lookupActorLabels, resolveActorLabel } from "../lib/actors";
 import { INTERNAL_CLIENT, clientPredicate, isStaleSource, parseClientParam, reviewStateOf } from "../lib/clients";
 import { intParam, json } from "../lib/http";
 import { requireAdmin, requireIdentity } from "../lib/identity";
-import { identityClearanceFloor } from "../lib/permissions";
+import { identityClearanceFloor, resolveWritePermission } from "../lib/permissions";
 import { layerOf, readableWorkspaces } from "../lib/scope";
 import { applyDocumentEdit } from "../memory/apply-edit";
 import { hydrateScopedEntries, selectScopedEntries } from "../lib/scoped-entries";
@@ -150,7 +150,9 @@ export async function handleClientRoutes(request: Request, url: URL, env: Env, c
 
     // scope-exempt: reads the caller's own row for a flag; no content
     const flag = await env.DB.prepare(`SELECT direct_publish AS d FROM users WHERE id = ?`).bind(auth.userId).first<{ d: number }>();
-    if (auth.role === "admin" || flag?.d === 1) {
+    // Direct publishing still honours the directory's can_write ACL; otherwise it falls through to a proposal.
+    const canWrite = auth.role === "admin" || (flag?.d === 1 && (await resolveWritePermission(env, auth, row.clearance_level, row.directory_id)).ok);
+    if (canWrite) {
       await applyDocumentEdit(env, row.id, content, auth.userId);
       adminAuditEvent(env, ctx, { actorId: auth.userId, workspaceId: row.workspace_id, event: "document_edited", payload: { id: row.id } });
       return json({ ok: true, applied: true });

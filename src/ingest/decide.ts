@@ -24,8 +24,6 @@ export interface Decision {
 export interface SubmitterContext {
   /** The submitter's own floor: they publish directly at this level or more open. */
   floor: number;
-  /** No longer skips anything: chunks flagged for review always wait for the owner. Kept so callers keep compiling. */
-  directPublish?: boolean;
 }
 
 /** Level to store given Jev's answer, applying the conservative rules. */

@@ -21,10 +21,10 @@ export async function handleOAuthAuthorize(request: Request, env: Env): Promise<
     const password = String(form.get("password") ?? "").trim();
     let grantUserId = "owner";
     let propsUserId = "owner";
-    if (password !== env.AUTH_TOKEN) {
+    if (!(await isOwnerToken(password, env.AUTH_TOKEN))) {
       const identity = await resolveIdentityFromToken(password, env);
       if (!identity) {
-        return new Response(loginHtml("Invalid token"), {
+        return new Response(loginHtml("Invalid token", await requesterOf(oauthReq, env)), {
           status: 401, headers: { "Content-Type": "text/html" },
         });
       }
@@ -39,5 +39,25 @@ export async function handleOAuthAuthorize(request: Request, env: Env): Promise<
     });
     return Response.redirect(redirectTo, 302);
   }
-  return new Response(loginHtml(), { headers: { "Content-Type": "text/html" } });
+  return new Response(loginHtml(undefined, await requesterOf(oauthReq, env)), { headers: { "Content-Type": "text/html" } });
+}
+
+async function sha256(s: string): Promise<Uint8Array> {
+  return new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s)));
+}
+
+// Compares fixed-length digests without early exit; an unset AUTH_TOKEN matches nothing.
+async function isOwnerToken(given: string, expected: string | undefined): Promise<boolean> {
+  if (!expected) return false;
+  const [a, b] = await Promise.all([sha256(given), sha256(expected)]);
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a[i] ^ b[i];
+  return diff === 0;
+}
+
+async function requesterOf(oauthReq: any, env: Env): Promise<{ name: string; redirectHost: string }> {
+  const client = await (env as any).OAUTH_PROVIDER.lookupClient(oauthReq.clientId).catch(() => null);
+  let redirectHost = "unknown";
+  try { redirectHost = new URL(oauthReq.redirectUri).host; } catch { /* keep unknown */ }
+  return { name: client?.clientName || "An unnamed app", redirectHost };
 }

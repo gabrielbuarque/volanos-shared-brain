@@ -57,7 +57,7 @@ export function readTeamQueryParam(
  * deployment-wide AUTH_TOKEN rather than one member's.
  */
 export function isAuthorized(request: Request, env: Env): boolean {
-  return request.headers.get("Authorization") === `Bearer ${env.AUTH_TOKEN}`;
+  return !!env.AUTH_TOKEN && request.headers.get("Authorization") === `Bearer ${env.AUTH_TOKEN}`;
 }
 
 // Returns a 401 Response if the request lacks a valid token, otherwise null —

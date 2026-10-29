@@ -116,26 +116,14 @@ export async function compressTag(
     // postpone a digest by a day — it never moves one user's content into another
     // user's row. Manual GET /digest passes workspaceIds and gets a per-workspace
     // check instead, so one member's recent rollup does not block another's.
-    let recentSynth: { id?: string } | null;
-    if (scoped) {
-      recentSynth = await env.DB.prepare(`
-        SELECT id FROM entries
-        WHERE tags LIKE '%"synthesized"%'
-          AND tags LIKE ? ${TAG_LIKE_ESCAPE}
-          AND created_at > ?
-          AND workspace_id = ?
-        LIMIT 1
-      `).bind(tagLikePattern(tag), Date.now() - 86400000, workspaceId).first();
-    } else {
-      // scope-exempt: cron: corpus-wide 24h cooldown existence check — id only, never returned; couples tenants on tag name only, no content crosses
-      recentSynth = await env.DB.prepare(`
-        SELECT id FROM entries
-        WHERE tags LIKE '%"synthesized"%'
-          AND tags LIKE ? ${TAG_LIKE_ESCAPE}
-          AND created_at > ?
-        LIMIT 1
-      `).bind(tagLikePattern(tag), Date.now() - 86400000).first();
-    }
+    const recentSynth = await env.DB.prepare(`
+      SELECT id FROM entries
+      WHERE tags LIKE '%"synthesized"%'
+        AND tags LIKE ? ${TAG_LIKE_ESCAPE}
+        AND created_at > ?
+        AND workspace_id = ?
+      LIMIT 1
+    `).bind(tagLikePattern(tag), Date.now() - 86400000, workspaceId).first();
 
     if (recentSynth) {
       continue;
@@ -182,7 +170,7 @@ ${digestText}`;
       const result = await captureEntry(content, ["synthesized", tag], "system", env, ctx, cfg,
         { workspaceId, actorId: "", clearanceLevel: level });
 
-      if (result.status !== "stored") {
+      if (result.status !== "stored" && result.status !== "flagged") {
         continue;
       }
 

@@ -187,17 +187,15 @@ export async function completeLogin(
 
   if (invite) {
     if (invite.email !== profile.email) return { kind: "denied", reason: "invite-email" };
-    const { member } = await createMember(env, { name: profile.name, email: profile.email, role: invite.role });
+    const { member } = await createMember(env, { name: profile.name, email: profile.email, role: invite.role, clearanceFloor: invite.clearance_floor });
     await env.DB.batch([
-      env.DB.prepare(`UPDATE users SET clearance_floor = ? WHERE id = ?`).bind(invite.clearance_floor, member.userId),
       env.DB.prepare(`UPDATE member_invites SET accepted_at = ? WHERE id = ? AND accepted_at IS NULL`).bind(Date.now(), invite.id),
     ]);
     return { kind: "session", token: await mintSession(env, member.userId), userId: member.userId, joined: true };
   }
 
   if (!domainAllowed(profile.email, allowedDomains)) return { kind: "denied", reason: "domain" };
-  const { member } = await createMember(env, { name: profile.name, email: profile.email, role: "member" });
-  await env.DB.prepare(`UPDATE users SET clearance_floor = 12, suspended = 1, approval_status = 'pending' WHERE id = ?`).bind(member.userId).run();
+  await createMember(env, { name: profile.name, email: profile.email, role: "member", pending: true });
   return { kind: "pending" };
 }
 

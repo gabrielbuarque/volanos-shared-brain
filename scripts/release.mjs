@@ -16,7 +16,7 @@
 //
 // Add DRY_RUN=1 to print what would happen without touching git/GitHub.
 
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -46,14 +46,15 @@ function fail(msg) {
   process.exit(1);
 }
 
-function run(cmd, opts = {}) {
+function run(bin, args = [], opts = {}) {
+  const cmd = [bin, ...args].join(" ");
   if (DRY && !opts.always) {
     console.log(`  [dry-run] ${cmd}`);
     return "";
   }
   // With stdio "inherit" execSync returns null (output isn't captured), so
   // guard before trimming — otherwise a successful push/PR still throws.
-  const out = execSync(cmd, { cwd: ROOT, stdio: opts.stdio ?? "pipe", encoding: "utf8" });
+  const out = execFileSync(bin, args, { cwd: ROOT, stdio: opts.stdio ?? "pipe", encoding: "utf8" });
   return out ? out.trim() : "";
 }
 
@@ -136,7 +137,7 @@ function writeAppVersion(v) {
   // Keep Cargo.lock in step (prefer cargo; fall back to a targeted edit).
   try {
     run(
-      `cargo update -p second-brain-desktop --precise ${v} --manifest-path installer/src-tauri/Cargo.toml`,
+      "cargo", ["update", "-p", "second-brain-desktop", "--precise", v, "--manifest-path", "installer/src-tauri/Cargo.toml"],
     );
   } catch {
     const lockPath = resolve(ROOT, "installer/src-tauri/Cargo.lock");
@@ -153,30 +154,8 @@ function writeAppVersion(v) {
 
 // ── git / gh ──────────────────────────────────────────────────────────────────
 
-/**
- * Quote a string for the `/bin/sh` that `run()` shells out to.
- *
- * `JSON.stringify` was doing this job and is not safe for it. It escapes quotes
- * and backslashes, which is what JSON needs, but leaves backticks, `$VAR` and
- * `$(...)` untouched — and inside sh's *double* quotes all three still expand.
- *
- * The release that found this had a PR body reading "Bumps the app to 1.3.1 and
- * `SB_VERSION` to 2.3.1". sh ran SB_VERSION as a command, printed
- * "SB_VERSION: command not found" to stderr where nothing was watching, and
- * substituted the empty result — so the PR shipped saying "and  to 2.3.1".
- * Silent corruption of anything a release writes to GitHub, every time a
- * backtick appears, which for a message naming a code symbol is most times.
- *
- * Single quotes are the fix rather than more escaping: sh expands nothing at all
- * inside them. The one character that cannot appear is a single quote itself, so
- * each is closed, escaped, and reopened.
- */
-function sh(value) {
-  return `'${String(value).replace(/'/g, `'\\''`)}'`;
-}
-
 function currentBranch() {
-  return run("git rev-parse --abbrev-ref HEAD", { always: true });
+  return run("git", ["rev-parse", "--abbrev-ref", "HEAD"], { always: true });
 }
 
 function assertReadyBranch() {
@@ -184,7 +163,7 @@ function assertReadyBranch() {
   if (branch === "main") {
     fail("You're on main. Commit your change to a feature branch and push it first.");
   }
-  const dirty = run("git status --porcelain", { always: true });
+  const dirty = run("git", ["status", "--porcelain"], { always: true });
   if (dirty) {
     fail("Working tree isn't clean. Commit (or stash) your change first, then run this.");
   }
@@ -193,8 +172,8 @@ function assertReadyBranch() {
 
 function commitPush(message) {
   step(message);
-  run(`git commit -aqm ${sh(message)}`);
-  run("git push -u origin HEAD", { stdio: "inherit" });
+  run("git", ["commit", "-aqm", message]);
+  run("git", ["push", "-u", "origin", "HEAD"], { stdio: "inherit" });
 }
 
 // Opens a PR if none exists for this branch; returns the PR number + url.
@@ -203,7 +182,7 @@ function ensurePr(title, body) {
   let existing = "";
   try {
     existing = run(
-      `gh pr view ${branch} --json number,url,state -q '.number+" "+.url+" "+.state'`,
+      "gh", ["pr", "view", branch, "--json", "number,url,state", "-q", '.number+" "+.url+" "+.state'],
       { always: true },
     );
   } catch {
@@ -217,14 +196,14 @@ function ensurePr(title, body) {
   }
   step("Opening PR to main");
   if (DRY) {
-    console.log(`  [dry-run] gh pr create --base main --title ${sh(title)}`);
+    console.log(`  [dry-run] gh pr create --base main --title ${JSON.stringify(title)}`);
     return 0;
   }
   run(
-    `gh pr create --base main --head ${branch} --title ${sh(title)} --body ${sh(body)}`,
+    "gh", ["pr", "create", "--base", "main", "--head", branch, "--title", title, "--body", body],
     { stdio: "inherit" },
   );
-  const number = run(`gh pr view ${branch} --json number -q .number`, { always: true });
+  const number = run("gh", ["pr", "view", branch, "--json", "number", "-q", ".number"], { always: true });
   return Number(number);
 }
 
@@ -242,7 +221,7 @@ async function waitForMergeThenTag(prNumber, appVersion) {
   }
   const deadline = Date.now() + POLL_MAX_MINUTES * 60_000;
   for (;;) {
-    const state = run(`gh pr view ${prNumber} --json state -q .state`, { always: true });
+    const state = run("gh", ["pr", "view", String(prNumber), "--json", "state", "-q", ".state"], { always: true });
     if (state === "MERGED") break;
     if (state === "CLOSED") fail(`PR #${prNumber} was closed without merging. Nothing tagged.`);
     if (Date.now() > deadline) {
@@ -261,10 +240,10 @@ async function waitForMergeThenTag(prNumber, appVersion) {
 // trap) after verifying the merged version matches.
 function tagMain(appVersion, tag) {
   step(`Tagging ${tag} on origin/main`);
-  run("git fetch origin", { always: true });
-  const sha = run("git rev-parse origin/main", { always: true });
+  run("git", ["fetch", "origin"], { always: true });
+  const sha = run("git", ["rev-parse", "origin/main"], { always: true });
   const confAtMain = run(
-    `git show origin/main:installer/src-tauri/tauri.conf.json`,
+    "git", ["show", "origin/main:installer/src-tauri/tauri.conf.json"],
     { always: true },
   );
   const mergedVersion = JSON.parse(confAtMain).version;
@@ -273,9 +252,9 @@ function tagMain(appVersion, tag) {
       `origin/main is at version ${mergedVersion}, not ${appVersion}. Is the PR merged? Re-run once it is.`,
     );
   }
-  run(`git tag ${tag} ${sha}`);
-  run(`git push origin ${tag}`, { stdio: "inherit" });
-  const repo = run("gh repo view --json nameWithOwner -q .nameWithOwner", { always: true });
+  run("git", ["tag", tag, sha]);
+  run("git", ["push", "origin", tag], { stdio: "inherit" });
+  const repo = run("gh", ["repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"], { always: true });
   console.log(`\n✓ Pushed ${tag}. CI is building the release:`);
   console.log(`  https://github.com/${repo}/actions`);
 }

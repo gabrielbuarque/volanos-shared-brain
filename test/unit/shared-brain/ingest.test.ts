@@ -33,12 +33,12 @@ describe("decide", () => {
   it("sends low confidence to the owner for everyone, direct publish included", () => {
     const unsure = cls(8, 0.4, [{ level: 8, p: 0.4 }, { level: 7, p: 0.3 }]);
     expect(decide(unsure, { floor: 7 })).toMatchObject({ outcome: "quarantine", review: true, reason: "low-confidence" });
-    expect(decide(unsure, { floor: 7, directPublish: true })).toMatchObject({ outcome: "quarantine", review: true, reason: "low-confidence" });
-    expect(decide(unsure, { floor: 0, directPublish: true }).outcome).toBe("quarantine");
+    expect(decide(unsure, { floor: 7 })).toMatchObject({ outcome: "quarantine", review: true, reason: "low-confidence" });
+    expect(decide(unsure, { floor: 0 }).outcome).toBe("quarantine");
     const split = cls(10, 0.8, [{ level: 10, p: 0.5 }, { level: 2, p: 0.3 }]);
-    expect(decide(split, { floor: 0, directPublish: true })).toMatchObject({ outcome: "quarantine", reason: "ambiguous-levels" });
-    expect(decide(cls(3, 0.95), { floor: 7, directPublish: true }).outcome).toBe("quarantine");
-    expect(decide(cls(9, 0.95), { floor: 0, directPublish: true })).toMatchObject({ outcome: "publish", review: false });
+    expect(decide(split, { floor: 0 })).toMatchObject({ outcome: "quarantine", reason: "ambiguous-levels" });
+    expect(decide(cls(3, 0.95), { floor: 7 }).outcome).toBe("quarantine");
+    expect(decide(cls(9, 0.95), { floor: 0 })).toMatchObject({ outcome: "publish", review: false });
   });
 });
 

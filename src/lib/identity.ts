@@ -335,7 +335,9 @@ async function viewAsIdentity(request: Request, env: Env, real: Identity, target
   }
   const target = await resolveIdentityByUserId(env, targetId);
   if (!target) return json({ ok: false, error: "Person not found" }, 404);
-  return { ...target, viewAsBy: real.userId };
+  // The view shows what the person's LEVEL and clients allow, never their private workspace,
+  // and never admin reach (legacy '' rows, requireAdmin GETs) even when the target is an admin.
+  return { ...target, role: "member", personalWorkspaceId: "view-as:no-personal", viewAsBy: real.userId };
 }
 
 /**

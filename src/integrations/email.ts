@@ -117,11 +117,19 @@ export function looksBulk(headers: Record<string, string>): boolean {
   return false;
 }
 
+// Mail without a Message-ID still needs a stable dedupe key: hash of from+date+subject.
+export function emailDedupeKey(h: EmailHeaderInfo): string {
+  if (h.messageId) return h.messageId;
+  let x = 5381;
+  for (const ch of `${h.from}|${h.date}|${h.subject}`) x = (Math.imul(x, 33) ^ ch.charCodeAt(0)) >>> 0;
+  return `nomid-${x.toString(16)}`;
+}
+
 // Candidates = not a newsletter/marketing (List-Unsubscribe), not an automated
 // sender, and not already ingested. Oldest-first so partial batches converge.
 export function computeEmailPlan(headers: EmailHeaderInfo[], ingestedIds: Set<string>): EmailHeaderInfo[] {
   return headers
-    .filter((h) => !h.bulk && !isNoiseSender(h.from) && (!h.messageId || !ingestedIds.has(h.messageId)))
+    .filter((h) => !h.bulk && !isNoiseSender(h.from) && !ingestedIds.has(emailDedupeKey(h)))
     .sort((a, b) => a.uid - b.uid);
 }
 
@@ -366,7 +374,7 @@ async function runEmailSync(env: IntegrationEnv, store: MirrorStore, svc: EmailS
         if (h.size && h.size > MAX_EMAIL_BYTES) {
           // Skip large messages (usually big attachments): fetching them risks
           // timeouts/OOM. Mark seen so they don't linger in the candidate set.
-          if (h.messageId) ingestedIds.add(h.messageId);
+          ingestedIds.add(emailDedupeKey(h));
           continue;
         }
         const raw = await client.uidFetchBody(h.uid);
@@ -376,7 +384,7 @@ async function runEmailSync(env: IntegrationEnv, store: MirrorStore, svc: EmailS
         const content = buildEmailContent(parsed.subject || h.subject, parsed.from || h.from, parsed.date || h.date, body);
         await store.createEntry(content, ["email", svc.id], svc.id);
         created++;
-        if (h.messageId) ingestedIds.add(h.messageId);
+        ingestedIds.add(emailDedupeKey(h));
       } catch (e) {
         console.error(`Email ingest failed for uid ${h.uid} (non-fatal):`, e);
         failed++;

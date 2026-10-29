@@ -73,15 +73,14 @@ export async function recordFeedback(env: Env, input: FeedbackInput): Promise<vo
   }
 }
 
-/** Recent decisions of this workspace, narrowed to the ones most like the chunks about to be classified. */
-export async function loadExamples(env: Env, workspaceId: string | undefined, chunks: readonly Chunk[]): Promise<FeedbackExample[]> {
+/** Recent decisions of this workspace (one D1 query); narrow per batch with pickExamples. */
+export async function loadExamplePool(env: Env, workspaceId: string | undefined): Promise<FeedbackExample[]> {
   if (!workspaceId) return [];
   try {
     const { results } = await env.DB.prepare(
       `SELECT text, final_level AS level, corrected, created_at AS createdAt FROM classification_feedback WHERE workspace_id = ? ORDER BY created_at DESC LIMIT ${FEEDBACK_POOL}`,
     ).bind(workspaceId).all<{ text: string; level: number; corrected: number; createdAt: number }>();
-    const pool = (results ?? []).map(r => ({ text: String(r.text), level: Number(r.level), corrected: Number(r.corrected) === 1, createdAt: Number(r.createdAt) }));
-    return pickExamples(pool, chunks);
+    return (results ?? []).map(r => ({ text: String(r.text), level: Number(r.level), corrected: Number(r.corrected) === 1, createdAt: Number(r.createdAt) }));
   } catch (e) {
     console.error("classification feedback not loaded:", e);
     return [];

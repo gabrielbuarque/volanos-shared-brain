@@ -83,12 +83,16 @@ export async function captureEntry(
   const c = cleanContent || raw;
   const t = [...new Set([...tags.map(tag => tag.trim().toLowerCase()).filter(Boolean), ...hashtags])];
 
-  const { duplicate: dup, contradiction, mergeAction, neighbors } = await checkDuplicateAndContradiction(
+  const { duplicate: dup, contradiction: detectedContradiction, mergeAction: detectedMerge, neighbors } = await checkDuplicateAndContradiction(
     c, env, cfg, writeCtx.workspaceId, ctx,
     // Compared against what the writer may read; a system writer (no reader) at the new entry's own level.
     { reader: writeCtx.reader, levelFloor: writeCtx.reader ? undefined : writeCtx.clearanceLevel },
   );
 
+  // A synthesized digest must never rewrite (merge) or deprecate (contradiction) the memories it summarises.
+  const synthesized = t.includes("synthesized");
+  const mergeAction = synthesized ? undefined : detectedMerge;
+  const contradiction = synthesized ? { detected: false } as typeof detectedContradiction : detectedContradiction;
   const definesCapsule = t.some(isCapsuleTag);
   if (definesCapsule && getStatus(t) === null) t.push("status:draft");
 

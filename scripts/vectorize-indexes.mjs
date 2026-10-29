@@ -16,6 +16,10 @@
 import { spawnSync } from "node:child_process";
 
 const index = process.argv[2] ?? "second-brain-vectors";
+if (!/^[a-z0-9-]+$/.test(index)) {
+  console.error(`Invalid index name "${index}": use lowercase letters, digits and hyphens only.`);
+  process.exit(1);
+}
 const wanted = [["workspace_id", "string"], ["clearance_level", "number"]];
 
 for (const [property, type] of wanted) {

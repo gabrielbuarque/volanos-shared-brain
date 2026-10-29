@@ -97,7 +97,7 @@ export async function runNightlyCompression(
 
   for (const tag of tags) {
     try {
-      await compressTag(tag, env, ctx);
+      await compressTag(tag, env, ctx, workspaceId != null ? { workspaceIds: [workspaceId] } : undefined);
     } catch (e) {
       console.error(`Compression failed for tag "${tag}" (non-fatal):`, e);
     }

@@ -59,8 +59,37 @@ pub fn write_config(
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
-    fs::write(&path, serde_json::to_string_pretty(&root)? + "\n")?;
+    write_private(&path, &(serde_json::to_string_pretty(&root)? + "\n"))?;
     Ok(path)
+}
+
+/// Writes the file owner-only (0600) on Unix: it holds the brain password.
+fn write_private(path: &Path, text: &str) -> std::io::Result<()> {
+    use std::io::Write;
+    #[allow(unused_mut)]
+    let mut opts = fs::OpenOptions::new();
+    opts.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut opts, 0o600);
+    opts.open(path)?.write_all(text.as_bytes())?;
+    // `mode` only applies on creation; tighten a pre-existing 0644 file too.
+    #[cfg(unix)]
+    fs::set_permissions(path, std::os::unix::fs::PermissionsExt::from_mode(0o600))?;
+    Ok(())
+}
+
+/// Removes `authToken` from the CLI config (logout). Missing/unparseable file is a no-op.
+pub fn clear_auth_token(home: &Path) {
+    let path = config_path(home);
+    let Ok(text) = fs::read_to_string(&path) else { return };
+    let Ok(mut root) = serde_json::from_str::<Value>(&text) else { return };
+    if let Some(obj) = root.as_object_mut() {
+        if obj.remove("authToken").is_some() {
+            if let Ok(out) = serde_json::to_string_pretty(&root) {
+                let _ = write_private(&path, &(out + "\n"));
+            }
+        }
+    }
 }
 
 // ── npm / brain resolution ────────────────────────────────────────────────

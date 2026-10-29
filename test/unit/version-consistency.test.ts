@@ -124,6 +124,6 @@ describe("release tooling stays the single path", () => {
       expect(script, `release.mjs no longer writes ${f}`).toContain(f);
     }
     // Cargo.lock is derived, so the script must run cargo rather than edit it.
-    expect(script).toContain("cargo update -p second-brain-desktop");
+    expect(script).toContain(`"cargo", ["update", "-p", "second-brain-desktop"`);
   });
 });

@@ -1,17 +1,18 @@
 import type { Env } from "../env";
+import { resolveConfig } from "../config";
 import { initializeDatabase } from "../db/init";
 import { importExportPayload, type ExportEntry } from "../entries/import";
 import { json } from "../lib/http";
 import { requireIdentity } from "../lib/identity";
 import { effectiveWriteTarget, readTeamParam, scopeWrite } from "../lib/scope";
 import { identityClearanceFloor, resolveWritePermission } from "../lib/permissions";
-import { classifierReady, commitPlan, planIngest, summarize, type IngestFile } from "../ingest/pipeline";
+import { classifierReady, commitPlan, MAX_CHUNKS_PER_REQUEST, planIngest, summarize, TooManyChunksError, type IngestFile } from "../ingest/pipeline";
 
 const MAX_FILES_PER_BATCH = 100;
 const MAX_FILE_CHARS = 250_000;
 
-async function stableId(path: string, content: string): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${path}\0${content}`));
+async function stableId(workspaceId: string, path: string, content: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${workspaceId}\0${path}\0${content}`));
   return `bulk-${[...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, "0")).join("")}`;
 }
 
@@ -39,7 +40,7 @@ export async function handleIngestRoutes(
   if (!Array.isArray(body.files) || body.files.length === 0) return json({ ok: false, error: "files must be a non-empty array" }, 400);
   if (body.files.length > MAX_FILES_PER_BATCH) return json({ ok: false, error: `A batch accepts at most ${MAX_FILES_PER_BATCH} files` }, 413);
   if (body.workspace !== undefined && body.workspace !== "personal" && body.workspace !== "company") return json({ ok: false, error: 'workspace must be "personal" or "company"' }, 400);
-  const target = effectiveWriteTarget(auth, body.workspace);
+  const target = effectiveWriteTarget(auth, body.workspace, (await resolveConfig(env)).TEAM_DEFAULT_WORKSPACE);
   const team = readTeamParam(body.team, auth, target);
   if (team.error) return json({ ok: false, error: team.error }, 400);
   const workspaceId = scopeWrite(auth, target, team.teamId);
@@ -67,16 +68,26 @@ export async function handleIngestRoutes(
       });
     }
     if (!files.length) return json({ ok: false, imported: 0, errors: rejected }, 400);
-    // scope-exempt: reads the caller's own row for a flag; no content
-    const flag = await env.DB.prepare(`SELECT direct_publish AS d FROM users WHERE id = ?`).bind(auth.userId).first<{ d: number }>();
-    const plan = await planIngest(env, files, { userId: auth.userId, floor: identityClearanceFloor(auth), directPublish: flag?.d === 1, workspaceId });
+    let plan;
+    try { plan = await planIngest(env, files, { userId: auth.userId, floor: identityClearanceFloor(auth), workspaceId }); }
+    catch (e) {
+      if (e instanceof TooManyChunksError) return json({ ok: false, error: `Too many chunks (${e.chunks}); a request accepts at most ${MAX_CHUNKS_PER_REQUEST}. Split the upload.` }, 413);
+      throw e;
+    }
     if (body.dry_run) {
       return json({
         ok: true, dry_run: true, classified: true, ...summarize(plan), rejected: rejected.length, errors: rejected, workspace_id: workspaceId,
         chunks: plan.chunks.map(c => ({ path: c.file.path, section: c.chunk.path, level: c.decision.level, outcome: c.decision.outcome, reason: c.decision.reason, confidence: c.classification?.confidence ?? null })),
       });
     }
-    const summary = await commitPlan(env, plan, { workspaceId, actorId: auth.userId }, auth.userId);
+    // The folder's ACL must follow the chunks, or they land at NULL and every reader at that level sees them.
+    let directoryId: string | null = null;
+    if (body.directory_id !== undefined && body.directory_id !== null && body.directory_id !== "") {
+      const permission = await resolveWritePermission(env, auth, undefined, body.directory_id, undefined);
+      if (!permission.ok) return json({ ok: false, error: permission.error }, permission.status);
+      directoryId = permission.directoryId ?? null;
+    }
+    const summary = await commitPlan(env, plan, { workspaceId, actorId: auth.userId, directoryId }, auth.userId);
     return json({ ok: true, classified: true, ...summary, documents: plan.docs.map(d => ({ doc_id: d.docId, path: d.path, sections: d.nodes.length, chunks: d.chunks })), rejected: rejected.length, errors: rejected, workspace_id: workspaceId });
   }
   const entries: ExportEntry[] = [];
@@ -92,7 +103,7 @@ export async function handleIngestRoutes(
     const permission = await resolveWritePermission(env, auth, file.clearance_level ?? body.clearance_level, file.directory_id ?? body.directory_id, path);
     if (!permission.ok) { errors.push({ path, error: permission.error }); continue; }
     entries.push({
-      id: await stableId(path, content),
+      id: await stableId(workspaceId, path, content),
       content,
       tags: ["bulk-ingest", `path:${path.split("/")[0].toLowerCase()}`],
       source: typeof file.source === "string" && file.source.trim() ? file.source.trim().slice(0, 80) : "bulk-ingest",
