@@ -258,6 +258,8 @@ function renderViewMeta(entry) {
   const created = Number(entry.created_at) || 0
   const updated = Number(entry.updated_at) || 0
   const parts = [`<span class="view-meta-item"><i class="ti ${badge.icon}"></i>${escHtml(badge.label)}</span>`]
+  const levelChip = levelChipHtml(entry.clearance_level)
+  if (levelChip) parts.unshift(`<span class="view-meta-item">${levelChip}</span>`)
   if (created) {
     parts.push(`<span class="view-meta-item" title="${escAttr(new Date(created).toLocaleString(localeTag()))}">${escHtml(t('memories.metaCaptured', { relative: relativeTime(created) }))}</span>`)
   }

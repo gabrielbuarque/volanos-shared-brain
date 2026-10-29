@@ -1,4 +1,5 @@
 import type { Env } from "../env";
+import { reviewStateOf } from "../lib/clients";
 import { importExportPayload, parseImportBody, parseImportLimit, parseImportOffset } from "../entries/import";
 import { initializeDatabase } from "../db/init";
 import { json } from "../lib/http";
@@ -188,7 +189,7 @@ export async function handleEntriesRoutes(
     const row = await env.DB.prepare(
       `SELECT id, content, tags, source, created_at, COALESCE(updated_at, created_at) AS last_updated,
               importance_score, recall_count, contradiction_wins, contradiction_losses, vector_ids,
-              workspace_id, actor_id
+              workspace_id, actor_id, clearance_level, directory_id
        FROM entries WHERE id = ? AND ${scope.clause}`
     ).bind(id, ...scope.bindings).first() as Record<string, any> | null;
     if (!row) return json({ ok: false, error: `No entry found with ID: ${id}` }, 404);
@@ -236,7 +237,13 @@ export async function handleEntriesRoutes(
         // "not indexed" in lists, and the detail view should agree.
         indexed: Array.isArray(vectorIds) && vectorIds.length > 0,
         workspace: layer,
+        // Which of the 13 levels (P0 most restricted) this memory sits at; the
+        // card badge and the Memories filter read it. The caller could already read it.
+        clearance_level: row.clearance_level === undefined || row.clearance_level === null ? null : Number(row.clearance_level),
         actor_name: actorName,
+        // Client (directory) and review state, for the document reader.
+        client_id: row.directory_id ?? null,
+        review_state: reviewStateOf(JSON.parse(row.tags ?? "[]")),
         // Whether this caller may edit or forget it, answered by the very
         // predicate the mutation routes enforce with — so the dashboard stops
         // offering an action it will be refused for. One flag rather than two

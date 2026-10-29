@@ -15,6 +15,10 @@ coverage/
 # The two files below are meant to be tracked.
 docs/*
 !docs/dashboard-architecture.md
+# Redesign da interface (capturas e README). O resto de docs/volanos segue fora do git.
+!docs/volanos/
+docs/volanos/*
+!docs/volanos/redesign/
 .claude/
 # .cursor/** rather than .cursor/* so anything else added anywhere under
 # .cursor stays ignored. Only the shipped memory rule is re-included:
@@ -49,3 +53,4 @@ devharness/
 *.db
 *.db-wal
 *.db-shm
+.dev-node/

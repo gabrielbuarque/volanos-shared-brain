@@ -60,6 +60,7 @@ const ALL_OBJECTS = ["entries", "idx_entries_created_at", "idx_entries_source", 
   "entry_classification", "doc_nodes", "contributions", "member_invites", "idx_entry_classification_doc", "idx_entry_classification_review", "idx_doc_nodes_workspace", "idx_contributions_queue", "idx_member_invites_token", "idx_member_invites_email", "member_sessions", "idx_member_sessions_user",
   // History and memory aging.
   "entry_versions", "idx_entry_versions_entry", "aging_suggestions", "idx_aging_suggestions_queue", "job_runs", "idx_job_runs_recent",
+  "classification_feedback", "idx_classification_feedback_workspace",
   ...PROMPT_CAPSULE_TRIGGERS];
 // Columns in the base CREATE of entries since v3 — present on every brain init touches.
 const BASE_COLUMNS = ["id", "content", "tags", "source", "created_at", "vector_ids", "workspace_id", "actor_id"];
@@ -228,7 +229,7 @@ describe("initializeDatabase updated_at migration", () => {
       // triggers, which make invalidation atomic with entry writes.
       // MOVED 66 -> 78 by memory aging: six entries columns (usage ranking, version,
       // supersession, archive, compaction) and three tables with their indexes.
-      expect(migrated).toBe(78); // baseline plus permission tables/columns, clearance index and the Shared Brain pilot tables
+      expect(migrated).toBe(80); // baseline plus permission tables/columns, clearance index and the Shared Brain pilot tables
       expect(execd.length + prepared.length).toBe(migrated + 3); // three probes total
       expect(prepared).toHaveLength(7); // three probes plus four prepared trigger DDLs
       expect(touchesEntries(execd)).toEqual([]);
@@ -544,7 +545,7 @@ describe("initializeDatabase against real SQLite", () => {
     // MOVED 35 -> 36 by idx_entry_events_created; see the sibling pin above.
     // MOVED 36 -> 38 by idx_memberships_workspace and idx_users_email.
     // MOVED 38 -> 43 by the Prompt Capsule revision table and its four triggers.
-    expect(cold).toBe(79); // one probe, then the migrated schema statements
+    expect(cold).toBe(81); // one probe, then the migrated schema statements
     expect(d1.issued).toHaveLength(1);
     expect(d1.issued[0]).toMatch(PROBE);
   });

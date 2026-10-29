@@ -21,7 +21,9 @@ export async function handlePermissionRoutes(
   if (url.pathname === "/permissions/me" && request.method === "GET") {
     const auth = await requireIdentity(request, env);
     if (auth instanceof Response) return auth;
-    return json({ ok: true, userId: auth.userId, role: auth.role, clearanceFloor: auth.role === "admin" ? 0 : auth.clearanceFloor ?? 12, levels: { min: CLEARANCE_MIN, max: CLEARANCE_MAX } });
+    // scope-exempt: reads the caller's own users row for a display name; no content
+    const row = await env.DB.prepare(`SELECT name, email FROM users WHERE id = ?`).bind(auth.userId).first<{ name: string; email: string | null }>();
+    return json({ ok: true, userId: auth.userId, name: row?.name ?? "", email: row?.email ?? null, role: auth.role, clearanceFloor: auth.role === "admin" ? 0 : auth.clearanceFloor ?? 12, levels: { min: CLEARANCE_MIN, max: CLEARANCE_MAX }, viewAs: !!auth.viewAsBy });
   }
 
   if (url.pathname === "/permissions/directories" && request.method === "GET") {

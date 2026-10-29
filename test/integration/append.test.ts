@@ -290,3 +290,19 @@ describe("POST /append", () => {
     expect(data.ok).toBe(false);
   });
 });
+
+describe("appendToEntry concurrency", () => {
+  it("appends in SQL so a stale caller read cannot overwrite a concurrent append", async () => {
+    const db = makeTestDb();
+    const env = makeTestEnv(db);
+    db.entries.push({ id: "t", content: "base", tags: "[]", source: "api", created_at: 1, vector_ids: "[]" });
+    const { appendToEntry } = await import("../../src/capture/store");
+
+    // Both callers read "base" before either writes.
+    await appendToEntry(env, "t", "base", "one", [], "api");
+    await appendToEntry(env, "t", "base", "two", [], "api");
+
+    expect(db.entries[0].content).toContain("one");
+    expect(db.entries[0].content).toContain("two");
+  });
+});

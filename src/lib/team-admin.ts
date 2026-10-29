@@ -1,6 +1,7 @@
 import type { Env } from "../env";
 import { resolveConfig } from "../config";
 import { hashToken } from "./identity";
+import { revokeAllAccess } from "../oauth/revoke";
 import { D1_MAX_BOUND_PARAMS } from "../constants";
 
 /** Team membership, workspace, and offboarding operations. */
@@ -279,7 +280,7 @@ function isUniqueEmailViolation(e: unknown): boolean {
 
 export async function createMember(
   env: Env,
-  input: { name?: string; email?: string | null; role?: "admin" | "member" },
+  input: { name?: string; email?: string | null; role?: "admin" | "member"; clearanceFloor?: number; pending?: boolean },
 ): Promise<{ member: TeamMember; token: string }> {
   const name = validateMemberName(input.name?.trim() ?? "");
   const role = input.role === "admin" ? "admin" : "member";
@@ -303,8 +304,8 @@ export async function createMember(
   try {
     await env.DB.batch([
       env.DB.prepare(
-        `INSERT INTO users (id, name, email, role, token_hash, suspended, created_at) VALUES (?, ?, ?, ?, ?, 0, ?)`,
-      ).bind(userId, name, email, role, tokenHash, now),
+        `INSERT INTO users (id, name, email, role, token_hash, suspended, created_at, clearance_floor, approval_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).bind(userId, name, email, role, tokenHash, input.pending ? 1 : 0, now, input.clearanceFloor ?? 12, input.pending ? "pending" : "active"),
       env.DB.prepare(`INSERT INTO workspaces (id, kind, name, created_at) VALUES (?, 'personal', ?, ?)`).bind(workspaceId, name, now),
       env.DB.prepare(`INSERT INTO memberships (user_id, workspace_id, created_at) VALUES (?, ?, ?)`).bind(userId, workspaceId, now),
       env.DB.prepare(`INSERT INTO memberships (user_id, workspace_id, created_at) VALUES (?, ?, ?)`).bind(userId, companyId.id, now),
@@ -319,8 +320,8 @@ export async function createMember(
 
   return {
     member: {
-      userId, name, email, role, suspended: false, createdAt: now,
-      lastUsedAt: null, clearanceFloor: 12,
+      userId, name, email, role, suspended: !!input.pending, createdAt: now,
+      lastUsedAt: null, clearanceFloor: input.clearanceFloor ?? 12,
       personalWorkspaceId: workspaceId, privateEntries: 0, defaultShare: "",
     },
     token,
@@ -337,6 +338,7 @@ export async function rotateMemberToken(env: Env, userId: string): Promise<strin
     `UPDATE users SET token_hash = ? WHERE id = ? AND (removed_at IS NULL OR removed_at = 0)`,
   ).bind(tokenHash, userId).run();
   if (!changedRows(result)) throw new TeamAdminError(404, `No member found with ID: ${userId}`);
+  await revokeAllAccess(env, userId); // sessions + OAuth grants would otherwise outlive the rotation
   return token;
 }
 
@@ -496,7 +498,7 @@ export async function setMemberProfile(
   input: { name?: string; email?: string | null },
 ): Promise<void> {
   const name = input.name === undefined ? undefined : validateMemberName(input.name.trim());
-  const email = input.email === undefined ? undefined : (input.email?.trim() || null);
+  const email = input.email === undefined ? undefined : (input.email?.trim().toLowerCase() || null);
   if (email) validateMemberEmail(email);
   if (name === undefined && email === undefined) {
     throw new TeamAdminError(400, "name or email is required");

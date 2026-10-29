@@ -60,6 +60,9 @@ function applyRecentFilters() {
     }
     entries = entries.filter((e) => e.created_at >= cutoff)
   }
+  if (typeof memoryLevelFilter === 'number') {
+    entries = entries.filter((e) => Number(e.clearance_level) === memoryLevelFilter)
+  }
   renderRecent(entries)
 }
 

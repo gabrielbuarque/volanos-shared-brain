@@ -40,14 +40,14 @@ const SCHEMA_PROBE_RESULTS = [
   ...["entries", "edges", "insight_candidates", "workspaces", "users", "memberships", "brain_directories", "brain_directory_grants",
     "entry_events", "admin_events", "maintenance_cursor", "prompt_capsule_revisions",
     "entry_classification", "doc_nodes", "contributions", "member_invites", "member_sessions",
-    "entry_versions", "aging_suggestions", "job_runs"]
+    "entry_versions", "aging_suggestions", "job_runs", "classification_feedback"]
     .map(name => ({ kind: "table", name })),
   ...["idx_entries_created_at", "idx_entries_source", "idx_entries_workspace_created", "idx_entries_capsule",
     "idx_edges_source", "idx_edges_target", "idx_edges_weight", "idx_insight_candidates_queue",
     "idx_workspaces_kind", "idx_users_token_hash", "idx_users_email", "idx_memberships_workspace",
     "idx_entry_events_entry", "idx_entry_events_created", "idx_admin_events_created", "idx_brain_directories_workspace", "idx_brain_directory_grants_user", "idx_entries_clearance",
     "idx_entry_classification_doc", "idx_entry_classification_review", "idx_doc_nodes_workspace", "idx_contributions_queue", "idx_member_invites_token", "idx_member_invites_email", "idx_member_sessions_user",
-    "idx_entry_versions_entry", "idx_aging_suggestions_queue", "idx_job_runs_recent"]
+    "idx_entry_versions_entry", "idx_aging_suggestions_queue", "idx_job_runs_recent", "idx_classification_feedback_workspace"]
     .map(name => ({ kind: "index", name })),
   ...["prompt_capsule_entry_insert", "prompt_capsule_entry_update",
     "prompt_capsule_entry_delete", "prompt_capsule_workspace_delete"]
@@ -203,6 +203,19 @@ export class D1Mock {
           if (row.updated_at === undefined) row.updated_at = row.created_at ?? Date.now();
           db.entries.push(row);
           return { meta: { changes: 1 } };
+        }
+        // SQL-side append (appendToEntry): content = content || ?
+        if (s.startsWith("UPDATE entries SET content = content || ?, vector_ids = ?, tags = ?, updated_at = ? WHERE id")) {
+          const [suffix, vector_ids, tags, updated_at, id] = args;
+          const row = db.entries.find((e: any) => e.id === id);
+          if (row) { row.content = row.content + suffix; row.vector_ids = vector_ids; row.tags = tags; row.updated_at = updated_at; }
+          return { meta: { changes: row ? 1 : 0 } };
+        }
+        if (s.startsWith("UPDATE entries SET content = content || ?, tags = ?, updated_at = ? WHERE id")) {
+          const [suffix, tags, updated_at, id] = args;
+          const row = db.entries.find((e: any) => e.id === id);
+          if (row) { row.content = row.content + suffix; row.tags = tags; row.updated_at = updated_at; }
+          return { meta: { changes: row ? 1 : 0 } };
         }
         if (s.startsWith("UPDATE entries SET content = ?, vector_ids = ?, tags = ?, updated_at = ?, workspace_id = ? WHERE id")) {
           const [content, vector_ids, tags, updated_at, workspace_id, id] = args;
@@ -537,12 +550,15 @@ export class D1Mock {
         }
         if (s.includes("WHERE tags LIKE") && s.includes("created_at >")) {
           // Cooldown check: find entries matching arg LIKE patterns + any hardcoded tags in SQL
-          const likePatterns: string[] = args.slice(0, -1).map((a: any) => String(a));
-          const cutoff = args[args.length - 1] as number;
+          // A workspace-scoped cooldown binds the workspace id last, after the cutoff.
+          const wsScoped = s.includes("AND workspace_id = ?");
+          const likePatterns: string[] = args.slice(0, wsScoped ? -2 : -1).map((a: any) => String(a));
+          const cutoff = args[args.length - (wsScoped ? 2 : 1)] as number;
           // Extract hardcoded tags from SQL (e.g. '%"synthesized"%')
           const hardcoded = [...s.matchAll(/'%"(\w+)"%'/g)].map(m => m[1]);
           const match = db.entries.find((e: any) => {
             if (e.created_at <= cutoff) return false;
+            if (wsScoped && (e.workspace_id ?? "") !== args[args.length - 1]) return false;
             const tags: string[] = JSON.parse(e.tags ?? "[]");
             if (!hardcoded.every(t => tags.includes(t))) return false;
             return likePatterns.every((p: string) => {

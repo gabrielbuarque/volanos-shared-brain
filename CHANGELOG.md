@@ -12,6 +12,9 @@ Four improvements inspired by ai-memory; summary, files and switches in `docs/vo
 - **Markdown export** to a private GitHub repository, daily at 06:30 UTC and on demand, with `POST /admin/rebuild-from-export`. The repository holds P0.
 - **Memory aging without an LLM** (all off by default): near-duplicate merge suggestions, contradiction alerts with the PRD precedence, extractive compaction of cold notes with `restore`; new "Saúde da memória" admin tab. Adds `entry_versions`, `aging_suggestions`, `job_runs` and six `entries` columns, migrated automatically.
 
+- **Owner approval and Jev feedback** (`docs/volanos/classificacao-feedback.md`): a chunk Jev is unsure of (low confidence, levels far apart, no answer) always goes to the approval queue and only P0/admin sees it, even for accounts with direct publishing; the owner's level choice (corrected or confirmed) is kept in `classification_feedback` and the closest examples are shown to Jev on the next classification of the same workspace.
+- **Access level on screen**: `GET /recall`, `GET /list` and `GET /entry` now return `clearance_level` (only for memories the caller may read). The dashboard shows a `P0`–`P12` badge on every source in the chat, every memory card and the memory detail sheet, and the Memories tab has an access-level filter built from the levels actually present (hidden when there is only one).
+
 ## [3.1.0] — Prompt Capsules
 
 Contributed by @oudouusa.

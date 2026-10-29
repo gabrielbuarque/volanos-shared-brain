@@ -131,10 +131,18 @@ export async function handleAccountRoutes(
     if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET) return request.method === "POST" ? json({ ok: false, error: "Google login is not configured" }, 503) : page("Login indisponível", "<p>O login com Google ainda não foi configurado por um administrador.</p>", 503);
     const state = (await generateToken()).token;
     let invite: string | null = null;
+    // The browser's own random value: it comes back in the sign-in fragment so the page can tell
+    // a login THIS tab started from a `#session=` link someone else sent.
+    let nonce: string | null = url.searchParams.get("n");
     if (request.method === "POST") {
-      try { invite = ((await request.json()) as { invite?: string }).invite ?? null; } catch { return json({ ok: false, error: "Invalid JSON" }, 400); }
+      try {
+        const posted = (await request.json()) as { invite?: string; n?: string };
+        invite = posted.invite ?? null;
+        nonce = posted.n ?? nonce;
+      } catch { return json({ ok: false, error: "Invalid JSON" }, 400); }
     }
-    await env.OAUTH_KV.put(`login:state:${state}`, JSON.stringify({ inviteHash: invite ? await hashToken(invite) : null }), { expirationTtl: STATE_TTL_SECONDS });
+    if (nonce !== null && !/^[A-Za-z0-9_-]{16,64}$/.test(nonce)) nonce = null;
+    await env.OAUTH_KV.put(`login:state:${state}`, JSON.stringify({ inviteHash: invite ? await hashToken(invite) : null, nonce }), { expirationTtl: STATE_TTL_SECONDS });
     const cfg = await resolveConfig(env);
     const params = new URLSearchParams({
       client_id: env.GOOGLE_CLIENT_ID, redirect_uri: `${url.origin}/auth/google/callback`, response_type: "code",
@@ -153,7 +161,7 @@ export async function handleAccountRoutes(
     const stored = await env.OAUTH_KV.get(`login:state:${state}`);
     if (!stored) return page("Não foi possível entrar", "<p>O pedido de login expirou. Volte e tente de novo.</p>", 400);
     await env.OAUTH_KV.delete(`login:state:${state}`);
-    const { inviteHash } = JSON.parse(stored) as { inviteHash: string | null };
+    const { inviteHash, nonce } = JSON.parse(stored) as { inviteHash: string | null; nonce?: string | null };
     const profile = await exchangeGoogleCode(env, code, `${url.origin}/auth/google/callback`);
     if (!profile) return page("Não foi possível entrar", "<p>O Google não confirmou a sua conta.</p>", 401);
     const cfg = await resolveConfig(env);
@@ -168,7 +176,7 @@ export async function handleAccountRoutes(
     }
     if (outcome.joined) adminAuditEvent(env, ctx, { actorId: outcome.userId, targetUserId: outcome.userId, event: "member_joined", payload: { via: "google" } });
     // The session token travels in the URL fragment, which no server or log sees.
-    return new Response(null, { status: 302, headers: { Location: `/#session=${outcome.token}${outcome.joined ? "&welcome=1" : ""}`, "Cache-Control": "no-store" } });
+    return new Response(null, { status: 302, headers: { Location: `/#session=${outcome.token}${outcome.joined ? "&welcome=1" : ""}${nonce ? `&n=${nonce}` : ""}`, "Cache-Control": "no-store" } });
   }
 
   return null;

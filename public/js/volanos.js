@@ -20,7 +20,10 @@ let volWelcomePending = false
   const invite = params.get('invite')
   if (!session && !invite) return
   try {
-    if (session) {
+    // Only a login this tab started: a `#session=` link from someone else carries no matching nonce.
+    const expected = sessionStorage.getItem('sb_login_nonce')
+    sessionStorage.removeItem('sb_login_nonce')
+    if (session && expected && params.get('n') === expected) {
       localStorage.setItem('sb_url', window.location.origin)
       localStorage.setItem('sb_token', session)
       volWelcomePending = params.get('welcome') === '1'
@@ -123,11 +126,14 @@ async function volPostPublic(path, body) {
 
 async function volStartGoogle() {
   try {
+    const bytes = crypto.getRandomValues(new Uint8Array(24))
+    const n = btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+    sessionStorage.setItem('sb_login_nonce', n)
     if (volInviteToken) {
-      const { url } = await volPostPublic('/auth/google/start', { invite: volInviteToken })
+      const { url } = await volPostPublic('/auth/google/start', { invite: volInviteToken, n })
       window.location.href = url
     } else {
-      window.location.href = `${window.location.origin}/auth/google/start`
+      window.location.href = `${window.location.origin}/auth/google/start?n=${n}`
     }
   } catch (e) {
     showToast(e.message)
@@ -248,7 +254,7 @@ async function volRenderMembers() {
       ${volSelect(`id="vol-ap-${escAttr(m.userId)}"`, volLevelOptions(12))}
       <button class="digest-btn" type="button" onclick="volApprove('${escAttr(m.userId)}')">Aprovar</button></div>`).join('')}</div>` : '<p class="digest-note">Nenhuma conta aguardando.</p>'}
     <div class="vol-list">${rest.map((m) => `<label class="vol-row"><span>${escHtml(m.name)}</span>${volPill(m.clearanceFloor)}
-      <span class="vol-muted">publicação direta</span>
+      <span class="vol-muted">publicação direta (trechos em que o Jev tem dúvida sempre esperam o P0)</span>
       <input type="checkbox" style="accent-color: var(--accent)" ${m.directPublish ? 'checked' : ''} onchange="volDirectPublish('${escAttr(m.userId)}', this.checked)" /></label>`).join('')}</div>`
 }
 
@@ -272,8 +278,11 @@ async function volRenderQueue(hostId) {
   if (!contributions.length) { el.innerHTML = '<p class="digest-note">Nada esperando aprovação.</p>'; return }
   el.innerHTML = contributions.map((c) => {
     const conf = c.confidence == null ? 'sem confiança' : `${Math.round(c.confidence * 100)}%`
+    const why = { 'low-confidence': 'Jev em dúvida', 'ambiguous-levels': 'Jev dividido entre níveis distantes', 'classifier-unavailable': 'Jev indisponível', 'above-submitter': 'mais restrito que quem enviou' }[c.reason] || ''
+    const guess = (c.top3 || []).slice(0, 2).map((t) => `P${t.level} (${Math.round(t.p * 100)}%)`).join(', ')
     return `<article class="vol-card" id="vol-c-${escAttr(c.id)}">
-      <header>${volPill(c.suggested_level)} <span class="vol-muted">confiança ${conf} · ${escHtml(c.source_path || c.source || '')}</span></header>
+      <header>${volPill(c.suggested_level)} <span class="vol-muted">confiança ${conf}${why ? ` · ${why}` : ''} · ${escHtml(c.source_path || c.source || '')}</span></header>
+      ${guess ? `<p class="vol-muted">Palpites do Jev: ${guess}. O nível que você escolher vira exemplo para o Jev acertar da próxima vez.</p>` : ''}
       <textarea class="filter-field" rows="3" id="vol-ct-${escAttr(c.id)}">${escHtml(c.content)}</textarea>
       <footer>${volSelect(`id="vol-cl-${escAttr(c.id)}"`, volLevelOptions(c.suggested_level))}
       <button class="digest-btn" type="button" onclick="volResolve('${escAttr(c.id)}','approve','${hostId}')">Aprovar</button>
@@ -288,8 +297,8 @@ async function volResolve(id, action, hostId) {
       body.level = Number(document.getElementById(`vol-cl-${id}`).value)
       body.content = document.getElementById(`vol-ct-${id}`).value
     }
-    await volApi('/contributions/resolve', { method: 'POST', body: JSON.stringify(body) })
-    showToast(action === 'approve' ? 'Publicado' : 'Rejeitado')
+    const r = await volApi('/contributions/resolve', { method: 'POST', body: JSON.stringify(body) })
+    showToast(action === 'approve' ? (r.corrected ? `Publicado em P${r.level}. O Jev vai aprender com a correção` : 'Publicado. Confirmação guardada para o Jev') : 'Rejeitado')
     volRenderQueue(hostId)
   } catch (e) { showToast(e.message) }
 }

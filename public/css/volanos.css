@@ -152,6 +152,8 @@ html[data-theme='dark'] {
 .lvl-pill[data-level="11"] { background: #cbd8e7; color: #0f1f49; }
 .lvl-pill[data-level="12"] { background: #dce9f5; color: #0f1f49; }
 html[data-theme=dark] .lvl-pill { border-color: #a5c9e9; }
+/* On memory and source cards: a compact badge that sits with the other chips. */
+.lvl-pill--card { flex-shrink: 0; min-width: 0; padding: 1px 7px; font-size: 10.5px; line-height: 1.5; }
 
 .vol-section { margin: 0 0 28px; display: flex; flex-direction: column; gap: 10px; }
 .vol-form, .vol-row, .vol-card footer, .vol-link { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
@@ -219,3 +221,292 @@ body.vol-auth p { margin: 0; line-height: 1.5; color: var(--text-secondary, #465
 .vol-card--notice { border: 2px solid var(--accent); }
 .vol-card--notice p { margin: 0; font-size: 13px; line-height: 1.5; color: var(--text-secondary); }
 .vol-panel[hidden], #vol-panel-health[hidden], #vol-panel-export[hidden] { display: none; }
+
+/* ══ Identidade Volanos ═════════════════════════════════════════════════════
+   Camada só de aparência: cor, tipografia, botões, raios e sombras. Não mexe
+   em estrutura, fluxo nem texto. Regras do Brand Book:
+   - Paleta: navy #0F1F49, Light Blue #A5C9E9, Neutral Gray #E6E8EB,
+     Lead Grey #191A1E, Off-White #F5F5F5. Sem laranja, verde nem vermelho.
+   - Montserrat em tudo (títulos em 300, rótulos em 600 caixa-alta com
+     espaçamento aberto). Merriweather só em itálico, na "virada" do título.
+   - Botão = pílula. Primário navy cheio, secundário contorno navy, ghost.
+   - Sem sombra estática; erro = borda navy mais grossa. Só tema claro. */
+@font-face { font-family: 'Montserrat Local'; src: url('../fonts/Montserrat-VariableFont_wght.ttf') format('truetype'); font-weight: 300; font-style: normal; font-display: swap; }
+@font-face { font-family: 'Montserrat Local'; src: url('../fonts/montserrat-700.woff2') format('woff2'); font-weight: 700; font-style: normal; font-display: swap; }
+
+:root {
+  --volanos-blue: #0f1f49;
+  --volanos-blue-deep: #0a1634;
+  --light-blue: #a5c9e9;
+  --neutral-gray: #e6e8eb;
+  --lead-grey: #191a1e;
+  --off-white: #f5f5f5;
+  --grey-caption: #727272;
+  --eyebrow-track: 0.1em;
+
+  /* Cinzas e navy no lugar das cores de estado. */
+  --good: #0f1f49;
+  --warn: #0f1f49;
+  --danger: #0f1f49;
+  --danger-soft: rgba(15, 31, 73, 0.08);
+  --bg-tag: #e6e8eb;
+  --bg-confirm: rgba(165, 201, 233, 0.34);
+  --bg-tag-confirmed: #0f1f49;
+  --text-tag-confirmed: #ffffff;
+  --text-tag: #0f1f49;
+  --accent-on-elevated: #a5c9e9;
+  --surface-elevated: #0f1f49;
+  --text-on-elevated: #ffffff;
+  --switch-knob: #ffffff;
+
+  --font-serif: 'Montserrat Local', Montserrat, Arial, sans-serif;
+  --font-sans: 'Montserrat Local', Montserrat, Arial, sans-serif;
+  --font-mono: 'Montserrat Local', Montserrat, Arial, sans-serif;
+  --font-quote: 'Merriweather Local', Georgia, serif;
+
+  --radius-card: 16px;
+  --radius-bubble: 16px;
+  --shadow-card: none;
+  --shadow-float: 0 2px 4px rgba(15, 31, 73, 0.08), 0 18px 48px rgba(15, 31, 73, 0.14);
+  --shadow-sheet: 0 -2px 4px rgba(15, 31, 73, 0.08), 0 -18px 48px rgba(15, 31, 73, 0.14);
+}
+
+body { font-family: var(--font-sans); font-weight: 400; letter-spacing: -0.01em; color: var(--text-primary); background: var(--bg); }
+
+/* Títulos: Montserrat leve, navy. A única serifada é a "virada" em itálico. */
+h1, h2, h3, h4, .home-greeting, .sb-brand-name, .topbar-name, .auth-card h1, .vol-modal-card h2 {
+  font-family: var(--font-sans);
+  font-weight: 300;
+  letter-spacing: -0.02em;
+  font-style: normal;
+  color: var(--volanos-blue);
+}
+em, .home-greeting em, .auth-card h1 em { font-family: var(--font-quote); font-style: italic; font-weight: 400; }
+
+/* Rótulos e eyebrows: caixa-alta, 600, espaçamento aberto, cinza de legenda. */
+.menu-group-label, .digest-section-label, .volanos-kicker, .section-label, .digest-label,
+.card-label, .sb-section-label, [class*="eyebrow"], [class$="-label"]:not(label):not(.theme-row-label) {
+  font-family: var(--font-sans);
+  text-transform: uppercase;
+  letter-spacing: var(--eyebrow-track);
+  font-weight: 600;
+}
+
+/* Sem sombra estática: cartões se separam por linha fina. */
+.card, .mem-card, .vol-card, .vol-stat, .digest-card, .brief-card, .auth-card, .stat-card,
+.team-card, .integration-card, .vol-modal-card, body.vol-auth main {
+  box-shadow: none;
+  border: 1px solid var(--line-soft);
+  border-radius: 16px;
+}
+.vol-modal-card, .app-toast, .card-overflow-menu, .sheet, .menu-sheet { box-shadow: var(--shadow-float); }
+
+/* Foco: anel Light Blue em outline, sempre visível no teclado. */
+:focus-visible { outline: 3px solid var(--light-blue); outline-offset: 2px; }
+input:focus, textarea:focus, select:focus { border-color: var(--volanos-blue); }
+
+/* Campos: raio de 8px, borda fina; foco troca a borda para navy. */
+input[type=text], input[type=search], input[type=email], input[type=password], input[type=url], textarea, select, .filter-field {
+  font-family: var(--font-sans);
+  border-radius: 8px;
+}
+
+/* ── Botões ─────────────────────────────────────────────────────────────
+   Primário: navy cheio. Secundário: contorno navy. Ghost: só texto navy.
+   Todos em pílula, caixa-alta, 600, espaçamento aberto. */
+.digest-btn, .vol-google-btn, .btn-append-save, .btn-append-cancel, .btn-cancel, .btn-delete,
+.btn-view-append, .btn-view-edit, .btn-view-forget, #auth-connect, .coach-mark-dismiss, .refresh-btn {
+  font-family: var(--font-sans);
+  font-weight: 600;
+  font-size: 12px;
+  letter-spacing: var(--eyebrow-track);
+  text-transform: uppercase;
+  line-height: 1.2;
+  border-radius: 999px;
+  border: 1px solid var(--volanos-blue);
+  background: transparent;
+  color: var(--volanos-blue);
+  padding: 9px 20px;
+  min-height: 34px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s, transform 0.12s;
+}
+.digest-btn:hover, .btn-append-cancel:hover, .btn-cancel:hover, .btn-view-append:hover, .btn-view-edit:hover,
+.btn-view-forget:hover, .refresh-btn:hover { background: rgba(15, 31, 73, 0.06); color: var(--volanos-blue); }
+.digest-btn:active, .vol-google-btn:active, .btn-append-save:active, #auth-connect:active { transform: scale(0.985); }
+
+/* Primários */
+.vol-google-btn, .btn-append-save, #auth-connect, .btn-delete {
+  background: var(--volanos-blue);
+  color: #ffffff;
+  border-color: var(--volanos-blue);
+}
+.vol-google-btn:hover, .btn-append-save:hover, #auth-connect:hover, .btn-delete:hover {
+  background: var(--volanos-blue-deep);
+  border-color: var(--volanos-blue-deep);
+  color: #ffffff;
+}
+/* "Quieto" e perigoso: mesmo contorno; o perigo é dito por texto e diálogo, não por cor. */
+.digest-btn--quiet { border-color: transparent; }
+.digest-btn.danger { color: var(--volanos-blue); border-width: 2px; background: transparent; }
+.digest-btn.danger:hover { background: rgba(15, 31, 73, 0.06); }
+
+/* Desabilitado: cinza sólido da paleta, não opacidade sobre navy. */
+.digest-btn:disabled, .vol-google-btn:disabled, .btn-append-save:disabled, #auth-connect:disabled, .send-btn:disabled {
+  background: var(--neutral-gray);
+  border-color: transparent;
+  color: var(--grey-caption);
+  opacity: 1;
+  cursor: not-allowed;
+}
+
+/* Botão redondo de enviar e botões de ícone */
+.send-btn { background: var(--volanos-blue); border: 1px solid var(--volanos-blue); }
+.send-btn:hover { background: var(--volanos-blue-deep); }
+.send-btn i { color: #ffffff; }
+.card-action-btn, .btn-close-icon, .team-icon-btn, .view-toggle-btn, .graph-btn {
+  border-radius: 999px;
+  color: var(--volanos-blue);
+}
+.card-action-btn:hover, .btn-close-icon:hover, .team-icon-btn:hover, .graph-btn:hover { background: rgba(15, 31, 73, 0.06); color: var(--volanos-blue); }
+.view-toggle-btn.active { background: var(--volanos-blue); color: #ffffff; }
+
+/* Abas e chips */
+.vol-tab, .sb-tab, .nav-tab { font-family: var(--font-sans); font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; font-size: 12px; }
+.vol-tab.active { color: var(--volanos-blue); border-bottom-color: var(--volanos-blue); }
+.suggestion-pill, .topic-chip, .tag-chip { font-family: var(--font-sans); border-radius: 999px; }
+
+/* Rodapé "Baixar app do desktop" aponta para o upstream; fica discreto, sem destaque. */
+#sb-download-app { background: transparent; color: var(--volanos-blue); border: 1px solid var(--volanos-blue); border-radius: 999px; }
+
+/* Sem tema escuro: o seletor de aparência some. */
+.theme-row:has(#theme-toggle) { display: none; }
+#sb-download-app { --dl-bg: transparent; --dl-fg: var(--volanos-blue); font-family: var(--font-sans); font-weight: 600; font-size: 12px; letter-spacing: var(--eyebrow-track); text-transform: uppercase; }
+#sb-download-app:hover { background: rgba(15, 31, 73, 0.06); }
+.send-btn { border: 0; }
+/* Montserrat não tem itálico: nada de itálico sintético. Merriweather itálico só em <em>. */
+.date-label, .recall-sys, .sys-note, .append-context, .receipt-note, .view-brain-note, .capture-note .hashtag,
+.home-hint .hashtag, #screen-home .input-field, #screen-home .input-field::placeholder,
+#recent-list .memory-card::before, .pattern-source--gone { font-style: normal; }
+#sb-download-app { font-size: 11px; letter-spacing: 0.06em; padding: 9px 12px; white-space: nowrap; }
+
+/* ══ Espaçamento e alvos de toque (Apple HIG) ═══════════════════════════════
+   - Grade de 8pt (4pt para ajustes finos): 4 · 8 · 12 · 16 · 24 · 32.
+   - Margem lateral única em todas as telas: 16px no celular, 24px a partir de
+     768px. Antes cada tela tinha a sua (18, 20, 24, 28).
+   - Alvo de toque mínimo de 44×44pt em telas de toque.
+   - Texto nunca abaixo de 11px; campos a 16px no celular (o iOS dá zoom abaixo disso). */
+:root { --gutter: 16px; --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px; --space-5: 24px; --space-6: 32px; --tap: 44px; }
+@media (min-width: 768px) { :root { --gutter: 24px; } }
+
+#recall-messages { padding: 24px var(--gutter) 8px; }
+.home { padding: 24px 0 8px; }
+.mem-bar { padding: 12px var(--gutter); gap: 8px; }
+#recent-list { padding: 16px var(--gutter) 24px; }
+#team-body { padding: 24px var(--gutter) !important; }
+.coach-mark { padding: 12px 16px; }
+.brief-panel { padding: 16px; }
+.team-name-row { padding: 12px 16px; }
+.team-row { padding: 16px; gap: 12px; }
+#recent-list .memory-card { padding-right: 8px; }
+.home-input { padding: 16px 16px 12px; }
+.attn { padding: 8px 12px; }
+
+/* Texto mínimo de 11px */
+.brief-eyebrow, .brief-label, .lvl-pill--card, .lvl-pill { font-size: 11px; }
+
+@media (max-width: 767px) {
+  /* Alvos de 44px. Os controles visuais continuam do mesmo tamanho onde cabem; o que cresce é a área que responde ao toque. */
+  .topbar-menu, .send-btn, .team-icon-btn, .card-action-btn, .btn-close-icon, .graph-btn,
+  .digest-btn, .view-toggle-btn, .coach-mark-dismiss, .attn, .vol-tab, .topic-chip,
+  .btn-append-save, .btn-append-cancel, .btn-cancel, .btn-delete, .menu-item,
+  #auth-connect, .vol-google-btn, .nav-tab, .suggestion-pill {
+    min-height: var(--tap);
+  }
+  .topbar-menu, .send-btn, .team-icon-btn, .card-action-btn, .btn-close-icon { min-width: var(--tap); }
+  #screen-home .send-btn, #screen-recall .send-btn { min-width: var(--tap); min-height: var(--tap); }
+  .filter-field, .team-select-wrap select, .team-select, select, input[type=text], input[type=email], input[type=search], input[type=password], input[type=url], textarea {
+    min-height: var(--tap);
+    font-size: 16px;
+  }
+  .home-field { min-height: 48px; font-size: 16px; }
+  .filter-inner { min-height: var(--tap); }
+  /* Linha de ações do cartão: respiro entre alvos vizinhos */
+  #recent-list .card-actions { gap: 4px; }
+  /* Checkbox e switch: a área de toque é o rótulo inteiro */
+  .sb-switch, label:has(input[type=checkbox]) { min-height: var(--tap); display: inline-flex; align-items: center; }
+  .team-row { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (max-width: 767px) {
+  /* Filtros da lista: grade de duas colunas, cada seletor com largura útil e alvo de 44px. */
+  .mem-filters { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 8px; border-radius: 16px; align-items: center; }
+  .mem-filters > i { display: none; }
+  .mem-filters select, .mem-filters .team-select-wrap, .mem-filters #layer-filter-wrap { width: 100%; min-width: 0; }
+  .mem-filters .team-select-wrap { display: flex; }
+  .mem-filters select { padding-left: 12px; }
+  /* Aviso de memórias: mesma margem lateral das listas. */
+  #screen-memories .coach-mark { margin: 12px var(--gutter) 0; }
+  /* Rodapé do cartão: metadados e ações numa linha, etiquetas em linha própria. */
+  #recent-list .card-footer { flex-wrap: wrap; row-gap: 8px; column-gap: 12px; }
+  #recent-list .card-tags { order: 3; flex: 1 1 100%; }
+  #recent-list .card-actions { order: 2; margin-left: auto; }
+  #recent-list .card-action-btn { min-height: var(--tap); min-width: var(--tap); }
+  .lvl-pill { flex-shrink: 0; }
+}
+@media (max-width: 767px) {
+  .mem-filters select, .mem-filters select.filter-field {
+    font-size: 15px;
+    border: 1px solid var(--border-input);
+    border-radius: 8px;
+    background-color: var(--bg-card);
+    padding: 0 28px 0 12px;
+    text-overflow: ellipsis;
+  }
+}
+@media (max-width: 767px) {
+  .mem-filters select.filter-field {
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%230F1F49' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+  }
+}
+@media (max-width: 767px) {
+  /* Seletores de configuração: 15px com alvo de 44px; a linha quebra em vez de vazar do cartão. */
+  .team-select { font-size: 15px; max-width: 100%; }
+  .team-select-wrap { max-width: 100%; min-width: 0; }
+  #team-body > div { flex-wrap: wrap; row-gap: 8px; }
+  #team-body .team-row .team-select-wrap, #team-body .team-row select { width: 100%; }
+}
+
+/* Início: uma coluna de leitura única (680px) para campo, aviso e resumo, com ritmo vertical na grade de 4/8. */
+#recall-messages > * { width: 100%; max-width: 680px; margin-left: auto; margin-right: auto; }
+.home-input { max-width: none; margin-top: 24px; }
+.coach-mark, .home-hint, .home-row { margin-top: 12px; }
+.brief-eyebrow { margin-bottom: 16px; }
+#screen-memories .coach-mark { margin: 12px var(--gutter) 0; }
+
+/* Folha de configurações: mesma margem lateral, respiro entre blocos, alvos de 44px. */
+.menu-inner { padding-left: var(--gutter); padding-right: var(--gutter); }
+.menu-group { margin-bottom: 24px; }
+.digest-section { margin-bottom: 16px; }
+.digest-section .digest-btn { margin-top: 8px; }
+@media (max-width: 767px) {
+  .theme-toggle button { min-height: var(--tap); min-width: var(--tap); padding: 0 16px; }
+  .about-credits a { display: inline-flex; align-items: center; min-height: var(--tap); padding: 0 4px; }
+  .menu-item { padding-top: 12px; padding-bottom: 12px; }
+}
+
+/* Textos dos níveis: campos de verdade (borda, raio, respiro), linhas na grade de 8pt e botão afastado. */
+.vol-section { margin: 0 0 32px; gap: 12px; }
+.vol-levels { gap: 8px; }
+.vol-level-row { gap: 12px; align-items: center; }
+.vol-level-row .filter-field {
+  width: 100%; min-width: 0; min-height: 40px; padding: 8px 12px;
+  border: 1px solid var(--border-input); border-radius: 8px; background: var(--bg-card);
+  font-size: 13px; color: var(--text-primary);
+}
+.vol-level-row .filter-field:focus { border-color: var(--volanos-blue); outline: none; box-shadow: none; }
+#vol-levels-editor .digest-note { margin-bottom: 16px; }
+#vol-levels-editor > .digest-btn { margin-top: 24px; }

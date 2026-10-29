@@ -26,7 +26,26 @@ i18nCtx.initI18n("en");
 (globalThis as any).localeTag = i18nCtx.localeTag;
 (globalThis as any).getLocale = i18nCtx.getLocale;
 
-const { parseRecallResult, escHtml, escAttr, toDateStr, vectorizeHealthBanner, vectorizeBannerHtml, syncVectorizeBanner, workspaceFilterChip, syncWorkspaceFilterChip, csvCell, csvDocument, layerChipHtml } = require("../../public/utils.js");
+const { parseRecallResult, escHtml, escAttr, toDateStr, vectorizeHealthBanner, vectorizeBannerHtml, syncVectorizeBanner, workspaceFilterChip, syncWorkspaceFilterChip, csvCell, csvDocument, layerChipHtml, levelChipHtml } = require("../../public/utils.js");
+
+describe("levelChipHtml", () => {
+  it("badges a memory with its access level, P0 being the most restricted", () => {
+    const html = levelChipHtml(2);
+    expect(html).toContain('class="lvl-pill lvl-pill--card"');
+    expect(html).toContain('data-level="2"');
+    expect(html).toContain(">P2<");
+  });
+  it("accepts a level that arrived as a string and keeps P0 (zero is a level, not 'none')", () => {
+    expect(levelChipHtml("0")).toContain(">P0<");
+    expect(levelChipHtml(0)).toContain('data-level="0"');
+  });
+  it("says nothing when the row carries no level or a nonsense one", () => {
+    for (const bad of [null, undefined, "", "abc", 13, -1, 2.5]) expect(levelChipHtml(bad)).toBe("");
+  });
+  it("describes the level on hover with a plain sentence when the pilot texts are not loaded", () => {
+    expect(levelChipHtml(5)).toContain("Access level P5");
+  });
+});
 
 // Minimal fake document so the banner DOM glue can be tested in the node
 // environment without jsdom. appendChild registers the element by id so a later

@@ -19,6 +19,8 @@ import { handleSharedBrainRoutes } from "./shared-brain";
 import { handleAccountRoutes } from "./accounts";
 import { handleExportRoutes } from "./export";
 import { handleMemoryHealthRoutes } from "./memory-health";
+import { handleClientRoutes } from "./clients";
+import { handleContributeRoutes } from "./contribute";
 
 type RouteHandler = (
   request: Request,
@@ -45,6 +47,8 @@ const routeHandlers: RouteHandler[] = [
   handleAccountRoutes,
   handleExportRoutes,
   handleMemoryHealthRoutes,
+  handleClientRoutes,
+  handleContributeRoutes,
 ];
 
 export function createDefaultHandler() {

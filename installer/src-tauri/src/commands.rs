@@ -2259,6 +2259,9 @@ pub async fn logout(app: AppHandle, session: State<'_, SetupSession>) -> Result<
 /// native dialog and has no `State` handle).
 pub fn perform_logout(app: &AppHandle) {
     secure_store::clear_setup();
+    if let Some(home) = dirs::home_dir() {
+        cli_config::clear_auth_token(&home);
+    }
     if let Some(session) = app.try_state::<SetupSession>() {
         session.reset();
     }
@@ -2267,6 +2270,9 @@ pub fn perform_logout(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("brain") {
         let _ = w.clear_all_browsing_data();
         let _ = w.close();
+    } else if let Some(w) = app.get_webview_window("main") {
+        // `brain` is gone: clear via `main` (assumed same data directory; unverified).
+        let _ = w.clear_all_browsing_data();
     }
     if let Some(w) = app.get_webview_window("details") {
         let _ = w.close();

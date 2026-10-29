@@ -144,7 +144,11 @@ struct CallbackResult {
 
 /// Blocks (call from `spawn_blocking`) until the browser hits the loopback
 /// callback, then returns the authorization code.
-fn wait_for_callback(server: tiny_http::Server, locale: Locale) -> Result<CallbackResult, OauthError> {
+fn wait_for_callback(
+    server: tiny_http::Server,
+    locale: Locale,
+    expected_state: &str,
+) -> Result<CallbackResult, OauthError> {
     let deadline = Instant::now() + CALLBACK_TIMEOUT;
     loop {
         let remaining = deadline
@@ -175,6 +179,11 @@ fn wait_for_callback(server: tiny_http::Server, locale: Locale) -> Result<Callba
                 "error" => error = Some(v.into_owned()),
                 _ => {}
             }
+        }
+        // Any local page can hit this port: only a request carrying our state counts.
+        if state.as_deref() != Some(expected_state) {
+            let _ = req.respond(tiny_http::Response::empty(400));
+            continue;
         }
         if error.is_some() {
             let _ = req.respond(html_response(&denied_page(locale)));
@@ -222,7 +231,8 @@ pub async fn run_login_flow(
     let state = random_state();
     open(auth_url(&pkce, &state));
 
-    let callback = tokio::task::spawn_blocking(move || wait_for_callback(server, locale))
+    let expected = state.clone();
+    let callback = tokio::task::spawn_blocking(move || wait_for_callback(server, locale, &expected))
         .await
         .map_err(|_| OauthError::Timeout)??;
 

@@ -389,6 +389,10 @@ export async function handleAdminRoutes(
     if (targetId !== auth.userId && auth.role !== "admin") {
       return json({ ok: false, error: "Forbidden" }, 403);
     }
+    // An unverified email is how Google login finds an account, so only an admin may set one.
+    if (body.email !== undefined && auth.role !== "admin") {
+      return json({ ok: false, error: "Only an admin can change an email" }, 403);
+    }
     try {
       await setMemberProfile(env, targetId, { name: body.name, email: body.email });
       // `self` separates a member renaming themselves — routine, and the common

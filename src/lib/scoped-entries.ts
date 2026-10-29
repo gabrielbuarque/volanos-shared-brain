@@ -25,6 +25,8 @@ export interface ScopedEntriesSpec {
   where?: string;
   /** Bindings for `where`, in order. */
   bindings?: readonly (string | number)[];
+  /** Column list for GROUP BY, after the scoped WHERE and before ORDER BY. Aggregates see readable rows only. */
+  groupBy?: string;
   /** Appended after the scoped WHERE. Plain expression list, no keyword. */
   orderBy?: string;
   limit?: number;
@@ -50,6 +52,7 @@ export function scopedEntriesQuery(identity: Identity, spec: ScopedEntriesSpec):
   );
   const bindings: (string | number)[] = [...(spec.bindings ?? []), ...scope.bindings];
   let sql = `SELECT ${spec.select} FROM entries${alias ? ` ${alias}` : ""} WHERE ${spec.where ? `(${spec.where}) AND ` : ""}${scope.clause}`;
+  if (spec.groupBy) sql += ` GROUP BY ${spec.groupBy}`;
   if (spec.orderBy) sql += ` ORDER BY ${spec.orderBy}`;
   if (spec.limit !== undefined) {
     sql += ` LIMIT ?`;

@@ -22,6 +22,8 @@ export interface Identity {
   defaultShare: "personal" | "company" | "";
   /** Lowest clearance a member may read/write. P0 is most restricted; P12 is broadest. */
   clearanceFloor?: number;
+  /** Set only while an admin views as this person (header X-View-As): the admin's user id. */
+  viewAsBy?: string;
 }
 
 /**
@@ -312,8 +314,30 @@ async function unauthorized(request: Request, env: Env): Promise<Response> {
  */
 export async function requireIdentity(request: Request, env: Env): Promise<Identity | Response> {
   const identity = await resolveIdentity(request, env);
-  if (identity) return identity;
-  return unauthorized(request, env);
+  if (!identity) return unauthorized(request, env);
+  const as = request.headers.get("X-View-As")?.trim();
+  if (!as) return identity;
+  return viewAsIdentity(request, env, identity, as);
+}
+
+/**
+ * "Ver como": an admin navigates with another person's level and clients. The server resolves
+ * THAT person's Identity and hands it to the very same filters every route already applies, so
+ * there is no simulation in the front end to drift from the real thing. It is read-only: the
+ * only POST it allows is /chat (an answer is a read), and every admin route sees a member and
+ * answers 403, because the identity that reaches them is the member's.
+ */
+async function viewAsIdentity(request: Request, env: Env, real: Identity, targetId: string): Promise<Identity | Response> {
+  if (real.role !== "admin" || real.viewAsBy) return json({ ok: false, error: "Forbidden" }, 403);
+  const path = new URL(request.url).pathname;
+  if (request.method !== "GET" && !(request.method === "POST" && path === "/chat")) {
+    return json({ ok: false, error: "Ver como é somente leitura", code: "view_as_read_only" }, 403);
+  }
+  const target = await resolveIdentityByUserId(env, targetId);
+  if (!target) return json({ ok: false, error: "Person not found" }, 404);
+  // The view shows what the person's LEVEL and clients allow, never their private workspace,
+  // and never admin reach (legacy '' rows, requireAdmin GETs) even when the target is an admin.
+  return { ...target, role: "member", personalWorkspaceId: "view-as:no-personal", viewAsBy: real.userId };
 }
 
 /**

@@ -1,0 +1,41 @@
+import { withPage } from "./harness.mjs";
+const OUT = process.env.SHOTS || (process.env.TEMP || "/tmp") + "/sbshots";
+const log = (...a) => console.log(...a);
+const section = (s) => log(`\n=========== ${s} ===========`);
+const FLAT = "(s)=>String(s||'').split(String.fromCharCode(10)).join(' | ')";
+const setField = (p, sel, v) => p.eval(`(()=>{const f=document.querySelector(${JSON.stringify(sel)}); f.value=${JSON.stringify(v)}; f.dispatchEvent(new Event('input',{bubbles:true}))})()`);
+const ask = async (p, q) => { await setField(p, ".composer__field", q); await p.eval(`document.querySelector('.composer button[type=submit]').click()`); await p.wait(400); await p.waitFor(`document.querySelector('.turn:last-of-type .turn__sources, .turn:last-of-type .state')`, 15000); await p.wait(400); return p.eval(`(${FLAT})([...document.querySelectorAll('.turn')].pop().innerText)`); };
+
+await withPage({}, async (p) => {
+  section("Ver como (owner → P8)");
+  await p.login();
+  await p.eval(`location.hash='#/admin/pessoas'`); await p.wait(1200);
+  log("botões ver como:", await p.eval(`[...document.querySelectorAll('button')].filter(b=>/ver como/i.test(b.innerText)).length`));
+  await p.eval(`[...document.querySelectorAll('button')].filter(b=>/ver como/i.test(b.innerText))[2]?.click()`); await p.wait(1800);
+  log("faixa:", await p.eval(`(${FLAT})(document.querySelector('.viewas')?.innerText)`));
+  log("nav:", await p.eval(`(${FLAT})(document.querySelector('.topbar__nav').innerText)`), "| perfil:", await p.eval(`(${FLAT})(document.querySelector('.topbar__profile').innerText)`));
+  await p.eval(`App.setClient('demo-dir-aurora')`); await p.wait(300);
+  log("ver como P8 → margem:", (await ask(p, "Qual é a margem do contrato Aurora?")).slice(0, 240));
+  await p.eval(`location.hash='#/admin/pessoas'`); await p.wait(800);
+  log("admin sob ver-como → rota:", await p.eval(`location.hash`));
+  await p.eval(`location.hash='#/contribuir'`); await p.wait(800);
+  log("contribuir sob ver-como: fila =", await p.eval(`(${FLAT})(document.body.innerText).slice(0,160)`));
+  await p.shot(`${OUT}/ex-vercomo.png`);
+  await p.eval(`[...document.querySelectorAll('.viewas button')].find(b=>/sair|voltar|encerrar|ver como/i.test(b.innerText))?.click()`); await p.wait(1500);
+  log("saiu:", await p.eval(`!document.querySelector('.viewas')`), "| perfil:", await p.eval(`(${FLAT})(document.querySelector('.topbar__profile').innerText)`));
+  await p.goto("/"); await p.wait(1200);
+  log("recarregar mantém ver-como?", await p.eval(`!!document.querySelector('.viewas')`));
+
+  section("Matriz: Demo Time P8 → P5 → P8");
+  await p.eval(`location.hash='#/admin/pessoas'`); await p.wait(1200);
+  const setLevel = async (v) => { await p.eval(`(()=>{const s=[...document.querySelectorAll('main select')][2]; s.value='${v}'; s.dispatchEvent(new Event('change',{bubbles:true}))})()`); await p.wait(1300); };
+  await setLevel(5);
+  log("toast:", await p.eval(`(${FLAT})(document.querySelector('.v-toast')?.innerText)`));
+  log("P8 agora:", (await p.api("/permissions/me", {}, "demo-token-p8-time")).body.match(/"clearanceFloor":\s*\d+/)?.[0]);
+  await p.shot(`${OUT}/ex-matriz.png`);
+  await setLevel(8);
+  log("de volta:", (await p.api("/permissions/me", {}, "demo-token-p8-time")).body.match(/"clearanceFloor":\s*\d+/)?.[0]);
+  log("auditoria:"); await p.eval(`location.hash='#/admin/auditoria'`); await p.wait(1500);
+  log((await p.eval(`(${FLAT})(document.querySelector('main').innerText)`)).slice(0, 900));
+  log("problemas:", p.problems, p.net.slice(-6));
+});

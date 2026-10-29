@@ -1,0 +1,22 @@
+import { withPage } from "./harness.mjs";
+const OUT = process.env.SHOTS || (process.env.TEMP || "/tmp") + "/sbshots";
+const log = (...a) => console.log(...a);
+const section = (s) => log(`\n=========== ${s} ===========`);
+await withPage({}, async (p) => {
+  await p.login();
+  section("doc inexistente");
+  await p.eval(`location.hash='#/doc/nao-existe'`); await p.wait(1500);
+  log(JSON.stringify((await p.text()).split("\n").slice(0, 20)));
+  await p.shot(`${OUT}/ex-doc404.png`);
+  section("G. EN");
+  p.eval(`setLocale('en')`).catch(() => {}); await p.wait(1500);
+  await p.eval(`location.hash='#/perguntar'`).catch(() => {}); await p.wait(1000);
+  const en = await p.text();
+  log(en.split("\n").slice(0, 30).join(" | "));
+  log("chaves cruas:", [...new Set(en.match(/\b[a-z]+\.[a-zA-Z.]{3,}\b/g) || [])].slice(0, 10));
+  await p.shot(`${OUT}/ex-en.png`);
+  section("H. token inválido");
+  await p.eval(`localStorage.setItem('sb_token','token-errado')`); await p.goto("/"); await p.wait(1500);
+  log((await p.text()).slice(0, 500).replace(/\n/g, " | "));
+  log("problemas:", p.problems, p.net);
+});

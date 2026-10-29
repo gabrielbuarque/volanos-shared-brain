@@ -312,3 +312,20 @@ describe("the writer's own duplicates are still found, and still merged", () => 
     expect(prompts.join("\n")).toContain("Solo: the counter-offer is 180");
   });
 });
+
+describe("review fixes", () => {
+  it("a synthesized digest is never merged into the memory it resembles", async () => {
+    seed("a-src", alice.personalWorkspaceId, alice.userId, "Alice source memory");
+    env.VECTORIZE = filteringVectorize("a-src", alice.personalWorkspaceId);
+    env.AI = scriptedAI('{"action":"replace","target_id":"a-src","merged_content":"overwritten"}', []);
+
+    const result = await captureEntry("Digest text", ["synthesized", "t"], "system", env, ctx, undefined, {
+      workspaceId: alice.personalWorkspaceId,
+      actorId: "",
+    });
+
+    expect(["stored", "flagged"]).toContain(result.status);
+    expect((result as { id: string }).id).not.toBe("a-src");
+    expect(await contentOf("a-src")).toBe("Alice source memory");
+  });
+});

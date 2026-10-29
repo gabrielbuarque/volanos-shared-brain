@@ -2,7 +2,7 @@
 <html lang="pt-BR">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="Volanos Shared Brain" />
@@ -223,6 +223,14 @@
                     <option value="" data-i18n="memories.allLayers">All layers</option>
                     <option value="personal" data-i18n="memories.personalLayer">Personal</option>
                     <option value="company" data-i18n="memories.sharedLayer">Shared</option>
+                  </select><i class="ti ti-chevron-down"></i></span>
+                </span>
+                <!-- Access level (P0 most restricted). Not gated on team mode: the
+                     level exists on every brain. Options and visibility are set by
+                     renderLevelFilter() from the levels actually in the list. -->
+                <span id="level-filter-wrap" style="display: none">
+                  <span class="team-select-wrap"><select class="team-select" id="level-filter-recent" onchange="onLevelFilterChange(this.value)" title="Show only one access level" data-i18n="memories.levelFilterTitle" data-i18n-attr="title">
+                    <option value="" data-i18n="memories.allLevels">All access levels</option>
                   </select><i class="ti ti-chevron-down"></i></span>
                 </span>
                 <!-- Only on the shared layer: on the personal layer every row is

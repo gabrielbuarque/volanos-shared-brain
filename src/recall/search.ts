@@ -12,6 +12,7 @@ import type { Identity } from "../lib/identity";
 import { lookupActorLabels, resolveActorLabel } from "../lib/actors";
 import { layerOf, scopeWhereForRead } from "../lib/scope";
 import { scopedEntriesQuery } from "../lib/scoped-entries";
+import { clientPredicate } from "../lib/clients";
 import { expandGraph } from "../graph/traverse";
 import type { GraphNeighbor } from "../graph/types";
 import { KIND_VALUES, type MemoryKind } from "../memory/kind";
@@ -44,6 +45,7 @@ async function keywordSearch(
   identity?: Identity,
   only?: "personal" | "company",
   teamId?: string,
+  clientId?: string,
 ): Promise<KeywordRow[]> {
   if (!tokens.length) return [];
   // Capped here rather than at distillation's uncapped exits because this is
@@ -70,9 +72,11 @@ async function keywordSearch(
   const predicate = `${tokenWhere}${timeWhere}`;
   const predicateBindings = [...terms.map(t => `%${t}%`), ...timeBindings];
   if (identity) {
+    const client = clientId ? clientPredicate(clientId) : null;
     const q = scopedEntriesQuery(identity, {
       select: "id, content, tags, source, created_at",
-      where: predicate, bindings: predicateBindings, orderBy: "created_at DESC", limit,
+      where: client ? `(${predicate}) AND ${client.clause}` : predicate,
+      bindings: client ? [...predicateBindings, ...client.bindings] : predicateBindings, orderBy: "created_at DESC", limit,
       layer: only, teamId,
     });
     const { results } = await env.DB.prepare(q.sql).bind(...q.bindings).all();
@@ -188,7 +192,13 @@ export async function recallEntries(
   const readScope = internal.identity
     ? { layer: internal.workspaceFilter, teamId: internal.teamId }
     : undefined;
-  const scope = readScope ? scopeWhereForRead(internal.identity!, readScope) : null;
+  let scope = readScope ? scopeWhereForRead(internal.identity!, readScope) : null;
+  // Client scope ANDs onto the permission clause everywhere `scope` is spliced in below
+  // (tag path, candidate hydration, final hydration): it can only narrow.
+  if (scope && internal.clientId) {
+    const client = clientPredicate(internal.clientId);
+    scope = { clause: `(${scope.clause}) AND ${client.clause}`, bindings: [...scope.bindings, ...client.bindings] };
+  }
   const identity = internal.identity;
 
   let semanticQuery = query;
@@ -292,7 +302,7 @@ export async function recallEntries(
     };
     const [denseResults, kwRows] = await Promise.all([
       denseQuery(),
-      keywordSearch(profile.retrievalTokens, env, cfg.KEYWORD_CANDIDATE_LIMIT, bounds, identity, internal.workspaceFilter, internal.teamId),
+      keywordSearch(profile.retrievalTokens, env, cfg.KEYWORD_CANDIDATE_LIMIT, bounds, identity, internal.workspaceFilter, internal.teamId, internal.clientId),
     ]);
     results = denseResults;
     keywordRows = kwRows;
@@ -340,7 +350,7 @@ export async function recallEntries(
   type CandidateSignalRow = { id: string; content?: string; source?: string; created_at?: number; last_updated?: number; recall_count: number; importance_score: number; contradiction_wins: number; contradiction_losses: number; tags: string; access_count?: number; last_accessed_at?: number | null };
   const rcRows: CandidateSignalRow[] = [];
   const candidateSignalProjection = hops > 0
-    ? `id, content, source, created_at, COALESCE(updated_at, created_at) AS last_updated, recall_count, importance_score, contradiction_wins, contradiction_losses, tags, workspace_id, actor_id, access_count, last_accessed_at`
+    ? `id, content, source, created_at, COALESCE(updated_at, created_at) AS last_updated, recall_count, importance_score, contradiction_wins, contradiction_losses, tags, workspace_id, actor_id, clearance_level, directory_id, access_count, last_accessed_at`
     : "id, recall_count, importance_score, contradiction_wins, contradiction_losses, tags, workspace_id, actor_id, access_count, last_accessed_at";
   // Scoped too: this is the leak-catcher for unscoped Vectorize hits — until
   // namespaces land (P3) the dense arm can surface a stranger's id, and the
@@ -477,7 +487,7 @@ export async function recallEntries(
     const placeholders = batch.map(() => "?").join(", ");
     const { results } = await env.DB.prepare(
       // scope-checked: the caller's clause IS applied — d1Filters is built from scope.clause above and appended here; the lexer cannot see into a JS-assembled fragment
-      `SELECT id, content, tags, source, created_at, updated_at, workspace_id, actor_id FROM entries WHERE id IN (${placeholders})${d1Filters}`
+      `SELECT id, content, tags, source, created_at, updated_at, workspace_id, actor_id, clearance_level, directory_id FROM entries WHERE id IN (${placeholders})${d1Filters}`
     ).bind(...batch, ...filterBindings).all() as { results: Record<string, any>[] };
     d1Rows.push(...results);
   }
@@ -506,6 +516,8 @@ export async function recallEntries(
       isUpdate: !!meta?.isUpdate,
       hop: 0,
       workspace: layerOf(identity, row.workspace_id),
+      clearance: clearanceOf(row),
+      directoryId: (row.directory_id as string | null | undefined) ?? null,
       staleAsOf: hasStaleAsOf(JSON.parse(row.tags ?? "[]")),
     }];
   }).sort((a, b) => b.score - a.score);
@@ -581,6 +593,8 @@ export async function recallEntries(
         isUpdate: false,
         hop: e.hop,
         workspace: layerOf(identity, row.workspace_id),
+        clearance: clearanceOf(row),
+        directoryId: (row.directory_id as string | null | undefined) ?? null,
         staleAsOf: hasStaleAsOf(JSON.parse(row.tags ?? "[]")),
         viaProvenance: e.viaProvenance,
         viaType: e.viaType,
@@ -653,6 +667,8 @@ export async function recallEntries(
         isUpdate: false,
         hop: 0,
         workspace: layerOf(identity, (row as Record<string, unknown>).workspace_id),
+        clearance: clearanceOf(row as Record<string, unknown>),
+        directoryId: ((row as Record<string, unknown>).directory_id as string | null | undefined) ?? null,
         staleAsOf: hasStaleAsOf(rowTags),
       };
       matchById.set(match.id, match);
@@ -739,4 +755,11 @@ export async function recallEntries(
   }
 
   return { matches, insight, semanticUnavailable, queryUsed: lexicalQuery, queryTokens: tokens, compoundStale, rerank: rerankInfo };
+}
+
+/** Clearance level of a hydrated row (P0 most restricted), or undefined when the row does not carry one. */
+function clearanceOf(row: Record<string, unknown>): number | undefined {
+  const raw = row.clearance_level;
+  const n = Number(raw);
+  return raw !== undefined && raw !== null && Number.isInteger(n) ? n : undefined;
 }

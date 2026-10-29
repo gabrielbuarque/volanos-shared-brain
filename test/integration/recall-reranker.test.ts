@@ -66,6 +66,13 @@ describe("RERANKER=jev in /recall", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
+  it("reports the access level of every source it returns, and only levels the caller may read", async () => {
+    const body = await recall();
+    expect(body.results.length).toBeGreaterThan(0);
+    for (const r of body.results) expect(r.clearance_level).toBe(7);
+    expect(JSON.stringify(body)).not.toContain("LEAK-P0");
+  });
+
   it("grades only readable candidates, reorders them, and reports reranked + latency", async () => {
     await setConfig({ RERANKER: "jev" });
     const baseline = (await recall()).results.map((r: any) => r.id);

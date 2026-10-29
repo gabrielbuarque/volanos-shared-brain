@@ -48,7 +48,7 @@ export function buildEntryFilterQuery(params: {
   if (params.before !== undefined) { conds.push(`created_at <= ?`); bindings.push(params.before); }
 
   // scope-exempt: builder only: callers splice the caller's scope in before ORDER BY — routes/recall.ts always, but mcp/server.ts only `if (identity)`, so an identity-less MCP caller gets this SQL unscoped
-  let sql = `SELECT id, content, tags, source, created_at, vector_ids, workspace_id, actor_id FROM entries`;
+  let sql = `SELECT id, content, tags, source, created_at, vector_ids, workspace_id, actor_id, clearance_level FROM entries`;
   if (conds.length) sql += ` WHERE ` + conds.join(` AND `);
   sql += ` ORDER BY created_at DESC LIMIT ?`;
   bindings.push(params.n);
@@ -83,12 +83,16 @@ export async function captureEntry(
   const c = cleanContent || raw;
   const t = [...new Set([...tags.map(tag => tag.trim().toLowerCase()).filter(Boolean), ...hashtags])];
 
-  const { duplicate: dup, contradiction, mergeAction, neighbors } = await checkDuplicateAndContradiction(
+  const { duplicate: dup, contradiction: detectedContradiction, mergeAction: detectedMerge, neighbors } = await checkDuplicateAndContradiction(
     c, env, cfg, writeCtx.workspaceId, ctx,
     // Compared against what the writer may read; a system writer (no reader) at the new entry's own level.
     { reader: writeCtx.reader, levelFloor: writeCtx.reader ? undefined : writeCtx.clearanceLevel },
   );
 
+  // A synthesized digest must never rewrite (merge) or deprecate (contradiction) the memories it summarises.
+  const synthesized = t.includes("synthesized");
+  const mergeAction = synthesized ? undefined : detectedMerge;
+  const contradiction = synthesized ? { detected: false } as typeof detectedContradiction : detectedContradiction;
   const definesCapsule = t.some(isCapsuleTag);
   if (definesCapsule && getStatus(t) === null) t.push("status:draft");
 

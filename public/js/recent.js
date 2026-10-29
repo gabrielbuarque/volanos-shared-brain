@@ -7,6 +7,8 @@
 let memoryLayerFilter = null
 /** Author filter, meaningful only on the shared layer: null = everyone. */
 let memoryActorFilter = null
+/** Access-level filter (0-12): null = every level the account can read. Applied in the browser over the loaded list. */
+let memoryLevelFilter = null
 /**
  * Whether the memories list is in selection mode.
  *
@@ -395,6 +397,9 @@ async function loadRecent() {
   maybeRevealActorFilter()
   try {
     allEntries = await apiList(50, memoryLayerFilter, memoryActorFilter)
+    // Level badges show each level's definition on hover; cached after the first call.
+    if (typeof volLoadLevels === 'function') await volLoadLevels()
+    renderLevelFilter()
     // Through the filters, not straight to render: reloading used to reset the
     // list to everything while the filter controls still read "work" and
     // "past 7 days", which now happens after every capture rather than only
@@ -440,6 +445,35 @@ function onLayerFilterChange(value) {
   // narrowing a list from a control the user can no longer see.
   if (memoryLayerFilter !== 'company') memoryActorFilter = null
   loadRecent()
+}
+
+/**
+ * The access-level filter offers only the levels present in the loaded list, with
+ * how many memories each holds, and hides itself when there is nothing to choose
+ * between (every memory at one level). A selected level that has since emptied
+ * stays in the list so the filter can be cleared.
+ */
+function renderLevelFilter() {
+  const wrap = document.getElementById('level-filter-wrap')
+  const sel = document.getElementById('level-filter-recent')
+  if (!wrap || !sel) return
+  const counts = new Map()
+  ;(Array.isArray(allEntries) ? allEntries : []).forEach((e) => {
+    const n = Number(e && e.clearance_level)
+    if (e && e.clearance_level !== null && e.clearance_level !== undefined && Number.isInteger(n)) counts.set(n, (counts.get(n) || 0) + 1)
+  })
+  if (memoryLevelFilter !== null && !counts.has(memoryLevelFilter)) counts.set(memoryLevelFilter, 0)
+  wrap.style.display = counts.size > 1 || memoryLevelFilter !== null ? '' : 'none'
+  const levels = [...counts.keys()].sort((a, b) => a - b)
+  sel.innerHTML =
+    `<option value="">${escHtml(t('memories.allLevels'))}</option>` +
+    levels.map((n) => `<option value="${n}"${memoryLevelFilter === n ? ' selected' : ''}>P${n} · ${counts.get(n)}</option>`).join('')
+  sel.value = memoryLevelFilter === null ? '' : String(memoryLevelFilter)
+}
+
+function onLevelFilterChange(value) {
+  memoryLevelFilter = value === '' || value === null || value === undefined ? null : Number(value)
+  applyRecentFilters()
 }
 
 function onActorFilterChange(value) {
@@ -590,7 +624,7 @@ function makeRecentCard(entry) {
     <span class="card-source"><i class="ti ${badge.icon}"></i>${escHtml(badge.label)}</span>
     ${created ? `<span class="card-time" title="${escAttr(new Date(created).toLocaleString(localeTag()))}">${escHtml(relativeTime(created))}</span>` : ''}
   </div>
-  <div class="card-tags">${shown.map((t) => `<span class="tag-chip">${escHtml(t)}</span>`).join('')}${layerChip}${vecChip}</div>
+  <div class="card-tags">${levelChipHtml(entry.clearance_level)}${shown.map((t) => `<span class="tag-chip">${escHtml(t)}</span>`).join('')}${layerChip}${vecChip}</div>
   <div class="card-actions">
     <button class="card-action-btn append-btn" onclick="openAppend('${escAttr(entry.id)}', '${escAttr(entry.content.slice(0, 80))}')"><i class="ti ti-writing"></i> ${escHtml(t('memories.append'))}</button>
     <button class="card-action-btn edit-btn"><i class="ti ti-pencil"></i> ${escHtml(t('memories.edit'))}</button>
@@ -634,7 +668,7 @@ function makeRecentCard(entry) {
     }
   }
   overflow.addEventListener('click', (ev) => ev.stopPropagation())
-  card.querySelector('.card-content').onclick = () => openView({ id: entry.id, content: entry.content, tags }, card)
+  card.querySelector('.card-content').onclick = () => openView({ id: entry.id, content: entry.content, tags, clearance_level: entry.clearance_level }, card)
   card.querySelector('.edit-btn').onclick = () => openEdit(entry.id, entry.content, tags)
   // Last, so it runs over the finished markup and after the handlers it
   // disables. GET /list reports `can_edit` per row; without reading it here a

@@ -173,6 +173,12 @@ function activityEventLabel(event) {
     unshared: 'activity.evUnshared',
     insight_confirmed: 'activity.evInsightConfirmed',
     insight_dismissed: 'activity.evInsightDismissed',
+    view_as_started: 'activity.evViewAsStarted',
+    conflict_flagged: 'activity.evConflictFlagged',
+    canon_proposed: 'activity.evCanonProposed',
+    contribution_submitted: 'activity.evContributionSubmitted',
+    edit_proposed: 'activity.evEditProposed',
+    document_edited: 'activity.evDocumentEdited',
   }
   return keys[event] ? t(keys[event]) : event || ''
 }

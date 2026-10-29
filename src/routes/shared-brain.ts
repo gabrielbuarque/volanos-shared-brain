@@ -3,6 +3,7 @@ import { resolveConfig } from "../config";
 import { importExportPayload } from "../entries/import";
 import { getLevels, saveLevels } from "../ingest/levels";
 import { adminAuditEvent } from "../lib/admin-audit";
+import { recordFeedback } from "../ingest/feedback";
 import { json } from "../lib/http";
 import { requireAdmin, requireIdentity } from "../lib/identity";
 import { CLEARANCE_MAX, identityClearanceFloor, normalizeClearance } from "../lib/permissions";
@@ -10,6 +11,9 @@ import { readableWorkspaces, scopeWhere } from "../lib/scope";
 import { chat, chatText, streamWithMeta } from "../llm/provider";
 import { ANSWER_SYSTEM, answerContext, parseNodeChoice, pruneTree, treePrompt, type ReadableChunk } from "../pageindex";
 import { CORS_HEADERS } from "../lib/http";
+import { ownsClientOf } from "./clients";
+import { selectScopedEntries } from "../lib/scoped-entries";
+import { applyDocumentEdit } from "../memory/apply-edit";
 
 /**
  * Routes for the Shared Brain pilot: level texts, the contribution approval
@@ -49,12 +53,30 @@ export async function handleSharedBrainRoutes(
     const status = url.searchParams.get("status") ?? "pending";
     if (!["pending", "approved", "rejected"].includes(status)) return json({ ok: false, error: "status must be pending, approved or rejected" }, 400);
     const workspaces = readableWorkspaces(auth);
+    // Chunks Jev was unsure of (low confidence, ambiguous, no answer) wait for the owner (P0) only.
+    const floor = identityClearanceFloor(auth);
+    // Quem não é P0 vê o que está acima do seu nível E o que é do cliente que ele é dono (proposta de Canon, contribuição).
+    const ownerOnly = floor === 0 ? "" : "AND (reason = 'above-submitter' OR doc_id IN (SELECT 'client:' || id FROM brain_directories WHERE owner_id = ?))";
     const { results } = await env.DB.prepare(
-      `SELECT id, submitter_id, source, source_path, content, suggested_level, confidence, top3, reason, status, final_level, created_at
-       FROM contributions WHERE status = ? AND suggested_level >= ? AND workspace_id IN (${workspaces.map(() => "?").join(", ")})
+      `SELECT id, submitter_id, source, source_path, content, suggested_level, confidence, top3, reason, status, final_level, created_at, doc_id, node_id,
+              (SELECT name FROM users WHERE users.id = contributions.submitter_id) AS submitter_name,
+              (SELECT name FROM brain_directories d WHERE 'client:' || d.id = contributions.doc_id) AS client_name
+       FROM contributions WHERE status = ? AND suggested_level >= ? ${ownerOnly} AND workspace_id IN (${workspaces.map(() => "?").join(", ")})
        ORDER BY created_at DESC LIMIT 200`,
-    ).bind(status, identityClearanceFloor(auth), ...workspaces).all();
-    return json({ ok: true, contributions: (results ?? []).map((r: any) => ({ ...r, top3: safeJson(r.top3) })) });
+    ).bind(status, floor, ...(floor === 0 ? [] : [auth.userId]), ...workspaces).all();
+    const rows = (results ?? []) as any[];
+    const editIds = [...new Set(rows.filter((r) => r.reason === "edit-proposal").map((r) => String(r.node_id).slice("edit:".length)))];
+    const targets = editIds.length
+      ? await selectScopedEntries<{ id: string; content: string }>(env, auth, { select: "id, content", where: `id IN (${editIds.map(() => "?").join(", ")})`, bindings: editIds, limit: editIds.length })
+      : [];
+    const byId = new Map(targets.map((t) => [t.id, t.content]));
+    return json({
+      ok: true,
+      contributions: rows
+        // Proposta de edição de um documento que o revisor não lê não aparece: nem o nome do documento vaza.
+        .filter((r) => r.reason !== "edit-proposal" || byId.has(String(r.node_id).slice("edit:".length)))
+        .map((r) => ({ ...r, top3: safeJson(r.top3), current_content: r.reason === "edit-proposal" ? byId.get(String(r.node_id).slice("edit:".length)) ?? null : undefined })),
+    });
   }
 
   // What the sender sees: status only, never the content or the level.
@@ -70,23 +92,36 @@ export async function handleSharedBrainRoutes(
   if (path === "/contributions/resolve" && request.method === "POST") {
     const auth = await requireIdentity(request, env);
     if (auth instanceof Response) return auth;
-    let body: { id?: string; action?: string; level?: unknown; content?: unknown };
+    let body: { id?: string; action?: string; level?: unknown; content?: unknown; motive?: unknown };
     try { body = await request.json(); } catch { return json({ ok: false, error: "Invalid JSON" }, 400); }
     if (!body.id?.trim()) return json({ ok: false, error: "id is required" }, 400);
     if (body.action !== "approve" && body.action !== "reject") return json({ ok: false, error: "action must be approve or reject" }, 400);
     const row = await env.DB.prepare(
-      `SELECT id, workspace_id, submitter_id, doc_id, node_id, ord, source, source_path, content, suggested_level, confidence, top3, status FROM contributions WHERE id = ?`,
+      `SELECT id, workspace_id, submitter_id, doc_id, node_id, ord, source, source_path, content, suggested_level, confidence, top3, reason, status FROM contributions WHERE id = ?`,
     ).bind(body.id.trim()).first<any>();
     const floor = identityClearanceFloor(auth);
     // A request the caller may not see answers exactly like one that does not exist.
-    if (!row || row.suggested_level < floor || !readableWorkspaces(auth).includes(row.workspace_id)) return json({ ok: false, error: "Contribution not found" }, 404);
+    // Chunks Jev was unsure of are the owner's (P0) to decide.
+    if (!row || row.suggested_level < floor || !readableWorkspaces(auth).includes(row.workspace_id) || (floor !== 0 && row.reason !== "above-submitter" && !(await ownsClientOf(env, auth.userId, String(row.doc_id))))) return json({ ok: false, error: "Contribution not found" }, 404);
     if (row.status !== "pending") return json({ ok: false, error: `Already ${row.status}` }, 409);
 
     const now = Date.now();
     if (body.action === "reject") {
       await env.DB.prepare(`UPDATE contributions SET status = 'rejected', resolved_by = ?, resolved_at = ? WHERE id = ? AND status = 'pending'`).bind(auth.userId, now, row.id).run();
-      adminAuditEvent(env, ctx, { actorId: auth.userId, targetUserId: row.submitter_id, workspaceId: row.workspace_id, event: "contribution_rejected", payload: { id: row.id } });
+      adminAuditEvent(env, ctx, { actorId: auth.userId, targetUserId: row.submitter_id, workspaceId: row.workspace_id, event: "contribution_rejected", payload: { id: row.id, motive: typeof body.motive === "string" ? body.motive.slice(0, 500) : "" } });
       return json({ ok: true, id: row.id, status: "rejected" });
+    }
+
+    if (row.reason === "edit-proposal") {
+      const targetId = String(row.node_id).slice("edit:".length);
+      // O revisor precisa ler o documento (nível, workspace e ACL no SQL); o nível não muda numa edição.
+      const target = (await selectScopedEntries<{ id: string }>(env, auth, { select: "id", where: "id = ?", bindings: [targetId], limit: 1 }))[0];
+      if (!target) return json({ ok: false, error: "Contribution not found" }, 404);
+      const edited = typeof body.content === "string" && body.content.trim() ? body.content.replace(/\r\n/g, "\n").trim() : row.content;
+      if (!(await applyDocumentEdit(env, targetId, edited, row.submitter_id))) return json({ ok: false, error: "Contribution not found" }, 404);
+      await env.DB.prepare(`UPDATE contributions SET status = 'approved', resolved_by = ?, resolved_at = ?, final_level = ?, entry_id = ? WHERE id = ? AND status = 'pending'`).bind(auth.userId, now, row.suggested_level, targetId, row.id).run();
+      adminAuditEvent(env, ctx, { actorId: auth.userId, targetUserId: row.submitter_id, workspaceId: row.workspace_id, event: "contribution_approved", payload: { id: row.id, edit: true, edited: edited !== row.content } });
+      return json({ ok: true, id: row.id, status: "approved", level: row.suggested_level, entry_id: targetId });
     }
 
     const level = normalizeClearance(body.level, row.suggested_level);
@@ -97,8 +132,11 @@ export async function handleSharedBrainRoutes(
     await importExportPayload(env, {
       version: 2,
       entries: [{
-        id: entryId, content, tags: ["bulk-ingest", `doc:${row.doc_id}`, "approved"],
+        id: entryId, content,
+        tags: row.reason === "canon-proposal" ? ["canon", `doc:${row.doc_id}`, "approved", "status:canonical"] : ["bulk-ingest", `doc:${row.doc_id}`, "approved"],
         source: row.source || "bulk-ingest", clearance_level: level, source_path: row.source_path,
+        // doc_id = "client:<diretório>" quando a contribuição veio da interface; o interno não tem diretório.
+        directory_id: String(row.doc_id).startsWith("client:") && row.doc_id !== "client:internal" ? String(row.doc_id).slice("client:".length) : null,
       }],
     }, { limit: 1, writeCtx: { workspaceId: row.workspace_id, actorId: row.submitter_id } });
     await env.DB.batch([
@@ -106,8 +144,17 @@ export async function handleSharedBrainRoutes(
       env.DB.prepare(`INSERT OR IGNORE INTO entry_classification (entry_id, doc_id, node_id, ord, jev_level, confidence, top3, review, model, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 0, 'approved', ?)`)
         .bind(entryId, row.doc_id, row.node_id, row.ord, row.suggested_level, row.confidence, row.top3, now),
     ]);
-    adminAuditEvent(env, ctx, { actorId: auth.userId, targetUserId: row.submitter_id, workspaceId: row.workspace_id, event: "contribution_approved", payload: { id: row.id, level, edited: content !== row.content } });
-    return json({ ok: true, id: row.id, status: "approved", level, entry_id: entryId });
+    // The decision teaches Jev: Jev's own pick vs. the level the owner chose, with the text.
+    const jevPick = (safeJson(row.top3) as { level?: number }[] | null)?.[0]?.level;
+    // O Jev só aprende com o que ele classificou; proposta de Canon e envio pela interface não passaram por ele.
+    if (!UI_REASONS.has(String(row.reason))) await recordFeedback(env, {
+      workspaceId: row.workspace_id, entryId, text: content,
+      jevLevel: typeof jevPick === "number" ? jevPick : null,
+      jevConfidence: typeof row.confidence === "number" ? row.confidence : null,
+      finalLevel: level, sourcePath: row.source_path ?? null, decidedBy: auth.userId, now,
+    });
+    adminAuditEvent(env, ctx, { actorId: auth.userId, targetUserId: row.submitter_id, workspaceId: row.workspace_id, event: "contribution_approved", payload: { id: row.id, level, edited: content !== row.content, jevLevel: jevPick ?? null } });
+    return json({ ok: true, id: row.id, status: "approved", level, entry_id: entryId, jev_level: jevPick ?? null, corrected: typeof jevPick === "number" && jevPick !== level });
   }
 
   // Daily summary for the owner: the queue plus chunks the classifier was unsure about.
@@ -116,7 +163,8 @@ export async function handleSharedBrainRoutes(
     if (auth instanceof Response) return auth;
     const pending = await env.DB.prepare(`SELECT suggested_level AS level, COUNT(*) AS n FROM contributions WHERE status = 'pending' GROUP BY suggested_level ORDER BY suggested_level`).all();
     const low = await env.DB.prepare(`SELECT COUNT(*) AS n FROM entry_classification WHERE review = 1`).first<{ n: number }>();
-    return json({ ok: true, pending_by_level: pending.results, low_confidence_published: low?.n ?? 0 });
+    const fb = await env.DB.prepare(`SELECT COUNT(*) AS total, COALESCE(SUM(corrected), 0) AS corrected FROM classification_feedback`).first<{ total: number; corrected: number }>().catch(() => null);
+    return json({ ok: true, pending_by_level: pending.results, low_confidence_published: low?.n ?? 0, feedback_examples: fb?.total ?? 0, feedback_corrections: fb?.corrected ?? 0 });
   }
 
   // ── PageIndex answer over one document ───────────────────────────────────
@@ -170,6 +218,9 @@ export async function handleSharedBrainRoutes(
 
   return null;
 }
+
+/** Motivos de fila que nascem na interface, não no classificador. */
+const UI_REASONS = new Set(["canon-proposal", "client-contribution"]);
 
 function safeJson(v: unknown): unknown {
   try { return JSON.parse(String(v)); } catch { return []; }

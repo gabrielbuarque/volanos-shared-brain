@@ -50,21 +50,24 @@ export function oauthPageHtml(title: string, body: string): string {
 }
 
 // Hosted OAuth login page. Self-contained (no CDN) so auth works in any browser session.
-export function loginHtml(error?: string): string {
+const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+
+export function loginHtml(error?: string, requester?: { name: string; redirectHost: string }): string {
   return oauthPageHtml("Second Brain", `
     <h1>Second Brain</h1>
     <p>Enter your Bearer token to connect to your personal memory layer. This is the password you chose when you set up Second Brain.</p>
+    ${requester ? `<p class="auth-hint"><strong>${esc(requester.name)}</strong> wants access. After you connect you will be sent to <strong>${esc(requester.redirectHost)}</strong>. Only continue if you trust it.</p>` : ""}
     <form method="POST">
       <input type="password" name="password" placeholder="Bearer token (your setup password)" autofocus autocomplete="current-password" />
       <button type="submit">Connect</button>
     </form>
-    <div class="auth-error">${error ? error : ""}</div>
+    <div class="auth-error">${error ? esc(error) : ""}</div>
   `);
 }
 
 export function authorizeErrorHtml(hint: string, detail?: string): string {
   const detailBlock = detail
-    ? `<p class="auth-detail">${detail}</p>`
+    ? `<p class="auth-detail">${esc(detail)}</p>`
     : "";
   return oauthPageHtml("Second Brain — sign-in error", `
     <h1>Could not start sign-in</h1>

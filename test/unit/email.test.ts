@@ -10,6 +10,7 @@ import {
   imapDate,
 } from "../../src/integrations";
 import type { EmailHeaderInfo } from "../../src/integrations";
+import { emailDedupeKey } from "../../src/integrations/email";
 
 // ─── looksBulk ──────────────────────────────────────────────────────────────
 
@@ -361,5 +362,15 @@ describe("imapDate", () => {
 
   it("formats a two-digit day and December correctly", () => {
     expect(imapDate(new Date(Date.UTC(2025, 11, 25)))).toBe("25-Dec-2025");
+  });
+});
+
+describe("computeEmailPlan without Message-ID", () => {
+  const h = (over: Partial<EmailHeaderInfo> = {}): EmailHeaderInfo => ({ uid: 1, messageId: "", from: "a@x.com", subject: "Hi", date: "Mon", bulk: false, ...over });
+  it("dedupes by a from+date+subject key", () => {
+    const key = emailDedupeKey(h());
+    expect(emailDedupeKey(h({ uid: 9 }))).toBe(key);
+    expect(computeEmailPlan([h()], new Set([key]))).toEqual([]);
+    expect(computeEmailPlan([h(), h({ subject: "Other" })], new Set([key])).map((x) => x.subject)).toEqual(["Other"]);
   });
 });

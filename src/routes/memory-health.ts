@@ -7,6 +7,7 @@ import { resolveConfig } from "../config";
 import { assertCanEditContent, getReadableEntry } from "../lib/entry-access";
 import { selectScopedEntries } from "../lib/scoped-entries";
 import { listVersions, restoreVersion } from "../memory/versions";
+import { lookupActorLabels, resolveActorLabel } from "../lib/actors";
 import { recentJobRuns } from "../memory/jobs";
 import { reembedOrDegrade, deleteStaleVectors } from "../capture/store";
 import { AGING_JOBS, agingFlag, runAgingJob, type AgingJob } from "../aging/jobs";
@@ -81,7 +82,9 @@ export async function handleMemoryHealthRoutes(
     // A version carries the level the memory had THEN: never show text above the caller's own level.
     const floor = auth.role === "admin" ? 0 : Math.max(0, Math.min(12, auth.clearanceFloor ?? 12));
     const versions = (await listVersions(env, id)).filter(v => v.clearance_level >= floor);
-    return json({ ok: true, id, versions: versions.map(v => ({ version: v.version, reason: v.reason, actor_id: v.actor_id, created_at: v.created_at, clearance_level: v.clearance_level, content: v.content })) });
+    // Quem fez a mudança, pelo mesmo rótulo que o resto do app usa (nunca o id cru).
+    const labels = await lookupActorLabels(env, versions.map(v => v.actor_id));
+    return json({ ok: true, id, versions: versions.map(v => ({ version: v.version, reason: v.reason, actor_id: v.actor_id, actor_name: resolveActorLabel(v.actor_id, labels, { viewerId: auth.userId }), created_at: v.created_at, clearance_level: v.clearance_level, content: v.content })) });
   }
 
   if (url.pathname === "/entry/restore" && request.method === "POST") {

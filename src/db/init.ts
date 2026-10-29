@@ -153,6 +153,9 @@ const SCHEMA_OBJECTS: Record<string, string> = {
   idx_aging_suggestions_queue: `CREATE INDEX IF NOT EXISTS idx_aging_suggestions_queue ON aging_suggestions(status, kind, created_at DESC)`,
   job_runs: `CREATE TABLE IF NOT EXISTS job_runs (id TEXT PRIMARY KEY, job TEXT NOT NULL, actor_id TEXT NOT NULL DEFAULT '', started_at INTEGER NOT NULL, finished_at INTEGER NOT NULL, ok INTEGER NOT NULL DEFAULT 1, summary TEXT NOT NULL DEFAULT '{}')`,
   idx_job_runs_recent: `CREATE INDEX IF NOT EXISTS idx_job_runs_recent ON job_runs(started_at DESC)`,
+  // What the owner decided about chunks Jev was unsure of; shown to Jev as examples next time.
+  classification_feedback: `CREATE TABLE IF NOT EXISTS classification_feedback (id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, entry_id TEXT NOT NULL, jev_level INTEGER, jev_confidence REAL, final_level INTEGER NOT NULL, corrected INTEGER NOT NULL DEFAULT 0, text TEXT NOT NULL, source_path TEXT, decided_by TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL)`,
+  idx_classification_feedback_workspace: `CREATE INDEX IF NOT EXISTS idx_classification_feedback_workspace ON classification_feedback(workspace_id, created_at DESC)`,
 };
 
 /**

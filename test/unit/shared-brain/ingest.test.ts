@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { decide, conservativeLevel } from "../../../src/ingest/decide";
+import { formatExamples, pickExamples, type FeedbackExample } from "../../../src/ingest/feedback";
 import { batches, buildRequest, parseAnswer } from "../../../src/ingest/jev";
 import { DEFAULT_LEVELS, levelCriteria, mergeLevels } from "../../../src/ingest/levels";
 import { nodesWithContent, parseMarkdown, worthTree, CHUNK_MAX_CHARS } from "../../../src/ingest/tree";
@@ -29,11 +30,51 @@ describe("decide", () => {
   it("fails closed when the classifier gave nothing", () => {
     expect(decide(null, { floor: 7 })).toMatchObject({ outcome: "quarantine", level: 0, reason: "classifier-unavailable" });
   });
-  it("direct publish skips the queue for review-only chunks, never for chunks above the sender", () => {
+  it("sends low confidence to the owner for everyone, direct publish included", () => {
     const unsure = cls(8, 0.4, [{ level: 8, p: 0.4 }, { level: 7, p: 0.3 }]);
-    expect(decide(unsure, { floor: 7 }).outcome).toBe("quarantine");
-    expect(decide(unsure, { floor: 7, directPublish: true })).toMatchObject({ outcome: "publish", review: true });
-    expect(decide(cls(3, 0.95), { floor: 7, directPublish: true }).outcome).toBe("quarantine");
+    expect(decide(unsure, { floor: 7 })).toMatchObject({ outcome: "quarantine", review: true, reason: "low-confidence" });
+    expect(decide(unsure, { floor: 7 })).toMatchObject({ outcome: "quarantine", review: true, reason: "low-confidence" });
+    expect(decide(unsure, { floor: 0 }).outcome).toBe("quarantine");
+    const split = cls(10, 0.8, [{ level: 10, p: 0.5 }, { level: 2, p: 0.3 }]);
+    expect(decide(split, { floor: 0 })).toMatchObject({ outcome: "quarantine", reason: "ambiguous-levels" });
+    expect(decide(cls(3, 0.95), { floor: 7 }).outcome).toBe("quarantine");
+    expect(decide(cls(9, 0.95), { floor: 0 })).toMatchObject({ outcome: "publish", review: false });
+  });
+});
+
+describe("owner feedback as examples for Jev", () => {
+  const now = Date.now();
+  const ex = (text: string, level: number, corrected: boolean, at = now): FeedbackExample => ({ text, level, corrected, createdAt: at });
+  const chunks = parseMarkdown("# Reunião\n\nO orçamento anual de mídia da Serra Branca é sigiloso.").chunks;
+
+  it("prefers the closest examples, corrections first, and caps the list", () => {
+    const pool = [
+      ex("Receita do trimestre e caixa da empresa", 3, false),
+      ex("O orçamento de mídia do cliente foi dito em confiança", 4, true),
+      ex("Como pedir uma ferramenta nova", 7, false),
+      ...Array.from({ length: 12 }, (_, i) => ex(`ruído sem relação ${i}`, 12, false)),
+    ];
+    const picked = pickExamples(pool, chunks, 3);
+    expect(picked).toHaveLength(3);
+    expect(picked[0].text).toContain("orçamento de mídia");
+  });
+  it("returns nothing for an empty pool and builds no prefix", () => {
+    expect(pickExamples([], chunks)).toEqual([]);
+    expect(formatExamples([])).toBe("");
+  });
+  it("puts the examples before the chunks and keeps chunk numbers intact", () => {
+    const req = buildRequest(chunks, DEFAULT_LEVELS, "jev-latest", [ex("Valor de contrato do cliente sob sigilo", 4, true)]);
+    expect(req.state.indexOf("Exemplos já decididos")).toBe(0);
+    expect(req.state).toContain('E1 → P4 (corrigido pelo responsável): "Valor de contrato do cliente sob sigilo"');
+    expect(req.state.indexOf("=== Trechos a classificar ===")).toBeLessThan(req.state.indexOf("[1] (Reunião)"));
+    expect(Object.keys(req.questions)).toEqual(["c0"]);
+  });
+  it("does not change the request when there are no examples", () => {
+    expect(buildRequest(chunks, DEFAULT_LEVELS).state).toBe(buildRequest(chunks, DEFAULT_LEVELS, "jev-latest", []).state);
+    expect(buildRequest(chunks, DEFAULT_LEVELS).state.startsWith("[1] (Reunião)")).toBe(true);
+  });
+  it("truncates long example text", () => {
+    expect(formatExamples([ex("palavra ".repeat(200), 5, false)]).length).toBeLessThan(700);
   });
 });
 
